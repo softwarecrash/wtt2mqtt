@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/matatunos/wttc",
+  "commit": "adbbf985a46c425c476f0dd9db3e8422f0bc7ea1",
+  "source_paths": {
+    "averias.h": "firmware/WTTC/averias.h",
+    "webasto_modelo.h": "herramientas/webasto_falsa/webasto_modelo.h",
+    "webasto_falsa.ino": "herramientas/webasto_falsa/webasto_falsa.ino",
+    "README.upstream.md": "herramientas/webasto_falsa/README.md"
+  },
+  "sha256": {
+    "averias.h": "73785d144e3615d64cd0f259fbd8489bc0a5e138e08469d9ef83c223089c9c6c",
+    "webasto_modelo.h": "9df1fe656072f92601e1dac8884745c346561004b8558bb76ec51d444e3bfbab",
+    "webasto_falsa.ino": "9953b78ddfe2d49d8912999eb317747f35ccf5aefe6b772ed96b9496aa4c792c",
+    "README.upstream.md": "42422c6d5e868f38d7e16a0f814e46a7624537fcd9f651f6fa80502bcf1a60b0"
+  }
+}

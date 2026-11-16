@@ -1,0 +1,6 @@
+.pio/
+.reference/
+include/WebAssets.h
+build/
+__pycache__/
+.vscode/

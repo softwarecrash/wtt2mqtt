@@ -1,0 +1,31 @@
+name: Build and protocol tests
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install platformio==6.2.0
+      - run: python tools/test_host.py --sanitize
+      - run: pio run -e esp32s3_supermini -e simulator
+      - run: python tools/verify_artifacts.py
+      - run: python tools/package_firmware.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WTT2MQTT-esp32s3-4mb
+          path: build/release/
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r tests/requirements-ui.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: python tools/test_ui.py
