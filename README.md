@@ -2,7 +2,7 @@
 
 Eigenständige ESP32-S3-Firmware für eine direkte W-Bus-Verbindung zu älteren **Webasto Thermo Top Z/C-D**. Lokale Weboberfläche, MQTT und Home Assistant, ohne Fahrzeug-CAN, Gateway oder Cloud. **Version 0.1.0 ist eine kompilierte Entwicklungsfirmware; keine Freigabe für alle Z/C-D-Steuergeräte.**
 
-Die Architektur und Benutzerführung orientieren sich an [Solar2MQTT](https://github.com/softwarecrash/Solar2MQTT). Das W-Bus-Protokoll und die Tests basieren auf [WTTC](https://github.com/matatunos/wttc). Solar2MQTT-Code wird wegen dessen CC BY-NC-ND-Lizenz nicht eingebunden. WTT2MQTT und die eingebundenen WTTC-Bestandteile stehen unter **GPL-3.0-or-later**; siehe [Herkunft und Lizenzen](docs/REFERENCES.md).
+Die Architektur und Benutzerführung orientieren sich an [Solar2MQTT](https://github.com/softwarecrash/Solar2MQTT). Die W-Bus-Protokollimplementierung basiert auf [WTTC](https://github.com/matatunos/wttc). Solar2MQTT-Code wird wegen dessen CC BY-NC-ND-Lizenz nicht eingebunden. WTT2MQTT und die eingebundenen WTTC-Bestandteile stehen unter **GPL-3.0-or-later**; siehe [Herkunft und Lizenzen](docs/REFERENCES.md).
 
 ## Was die erste Firmware enthält
 
@@ -60,16 +60,14 @@ Lokales OTA: **nur `firmware.bin` für dieses Projekt und Board** hochladen. Es 
 ## Tests und Projektstruktur
 
 ```sh
-python tools/test_host.py
-pio run -e esp32s3_supermini -e simulator
+pio run -e esp32s3_supermini
+python tools/verify_artifacts.py
 # Optionaler Browser-Test mit gemockter API, kein Hardwaretest:
 python -m pip install -r tests/requirements-ui.txt
 python tools/test_ui.py
 ```
 
-Die C++-Tests verwenden **die echten WTT2MQTT-Protokoll- und Zustandsklassen** mit dem unveränderten WTTC-Modell. Sie prüfen Telegramme, Echo, byteweise Empfangszeiten, Fehler, Start/Haltebefehl/Stopp, Kommunikationsausfall und `millis()`-Überlauf. `g++`/`clang++` erforderlich; alternativ wird unter Windows die vorhandene PlatformIO-MinGW-Toolchain gefunden. Linux zusätzlich `python tools/test_host.py --sanitize` möglich.
-
-Ein **zweiter ESP32** kann mit `pio run -e simulator -t upload` als unveränderte WTTC-Webasto-Simulation dienen. Details und Grenzen: [Tests und Prüfplan](docs/TESTING.md). Die Browser-Simulation auf der WTTC-Website ist keine Messung eines realen Heizgeräts.
+Die Funktionsprüfung erfolgt an echter ESP32-/TJA1020-/Webasto-Hardware. Der [Hardware-Prüfplan](docs/TESTING.md) beschreibt Diagnose, Start/Stopp, Kommunikationsausfall, MQTT und OTA. Browserprüfungen mit einer gemockten HTTP-API dienen ausschließlich der Oberflächenprüfung und sind kein Heizgerätetest.
 
 | Pfad | Verantwortung |
 |---|---|
@@ -81,8 +79,8 @@ Ein **zweiter ESP32** kann mit `pio run -e simulator -t upload` als unverändert
 | `src/Mqtt.cpp` | ESP-IDF-MQTT-Client, Topics, Home Assistant |
 | `src/Runtime.cpp` | Bounded Command-Queue, Snapshots, Log-Ring |
 | `web/` | Eigenständig geschriebene Oberfläche ohne externe Ressourcen |
-| `third_party/wttc/` | Originale Fehlertexte, Simulator und Herkunftsnachweise |
+| `third_party/wttc/` | Originale Fehlertexte und Herkunftsnachweise |
 
 Die Arduino-Hauptschleife besitzt UART und Heizungszustand auf Core 1. Der Netzwerk-Task läuft auf Core 0; MQTT hat seinen asynchronen ESP-IDF-Task. Nur POD-Snapshots und eine begrenzte Queue verbinden beide Seiten. Keine Antwort-, WLAN- oder MQTT-Warteschleifen in der Steuerung; `vTaskDelay(1)` gibt lediglich CPU-Zeit ab. HTTP darf im Netzwerk-Task auf einen langsamen Client warten, ohne die Steuerung logisch zu blockieren; Flash-Schreiben beeinflusst auf ESP32 dennoch beide Cores und muss real vermessen werden.
 
-**Nicht auf echter Webasto-/TJA1020-Hardware geprüft:** elektrische Pegel und Break-Verhalten, variantenspezifische Protokollunterstützung, reale Heizphasen, Fehlertexte im konkreten Gerät, Dauerbetrieb, WLAN/MQTT am Board sowie OTA/Reset unter realen Bedingungen. Protokollbelege sind nachvollziehbar in [Referenzanalyse](docs/REFERENCES.md) und [Protokollumfang](docs/PROTOCOL.md). Ein Modelltest beweist keine Z/C-D-Kompatibilität.
+**Nicht auf echter Webasto-/TJA1020-Hardware geprüft:** elektrische Pegel und Break-Verhalten, variantenspezifische Protokollunterstützung, reale Heizphasen, Fehlertexte im konkreten Gerät, Dauerbetrieb, WLAN/MQTT am Board sowie OTA/Reset unter realen Bedingungen. Protokollbelege sind nachvollziehbar in [Referenzanalyse](docs/REFERENCES.md) und [Protokollumfang](docs/PROTOCOL.md). Die Kompatibilität wird am konkreten Heizgerät geprüft.

@@ -1,6 +1,6 @@
 # W-Bus-Implementierungsumfang
 
-Quelle: WTTC-Commit `adbbf985a46c425c476f0dd9db3e8422f0bc7ea1`, `firmware/WTTC/WTTC.ino` (W-Bus, readSensors, runCheck), `logica.h` (wbBuild/wbCheck/wbParse*) und das Modell `herramientas/webasto_falsa/webasto_modelo.h`.
+Quelle: WTTC-Commit `adbbf985a46c425c476f0dd9db3e8422f0bc7ea1`, `firmware/WTTC/WTTC.ino` (W-Bus, readSensors, runCheck), `logica.h` (wbBuild/wbCheck/wbParse*).
 
 ## Transport
 
@@ -18,15 +18,15 @@ Quelle: WTTC-Commit `adbbf985a46c425c476f0dd9db3e8422f0bc7ea1`, `firmware/WTTC/W
 
 | Anfrage | Interpretation | Implementierung und Nachweis |
 |---|---|---|
-| `21 mm` | Parkheizen für `mm` Minuten | ACK `mm`, 1–120 Minuten. WTTC und unveränderter Simulator |
-| `44 21 00` | Aktive Parkheizanforderung halten | alle 5 s, Antwort `00` aktiv / `01` nicht aktiv; WTTC und Simulator |
-| `10` | Regulärer Stopp | ACK `00`, bis zu 3 Transportversuche; WTTC und Simulator |
-| `50 05` | Sensoren | Mindestantwort 4 Bytes inkl. Subindex; WTTC und Simulator |
-| `56 01` | Gespeicherte Fehler | strikte Anzahl-/Längenprüfung; WTTC und Simulator |
-| `51 0B` | Gerätename | druckbare ASCII-Zeichen; WTTC runCheck, im WTTC-Modell **nicht** implementiert |
-| `51 05` | Fertigungsdatum Heizgerät | Tag, Monat, zweistelliges Jahr; WTTC runCheck, Modell **nicht** implementiert |
-| `51 0A` | W-Bus-Version | High-/Low-Nibble; WTTC runCheck, Modell **nicht** implementiert |
-| `50 06` | Zähler | Arbeitsstunden/-minuten, Betriebsstunden/-minuten, Starts; WTTC runCheck, Modell **nicht** implementiert |
+| `21 mm` | Parkheizen für `mm` Minuten | ACK `mm`, 1–120 Minuten. WTTC-Quellcode; Hardwareprüfung ausstehend |
+| `44 21 00` | Aktive Parkheizanforderung halten | alle 5 s, Antwort `00` aktiv / `01` nicht aktiv; WTTC-Quellcode; Hardwareprüfung ausstehend |
+| `10` | Regulärer Stopp | ACK `00`, bis zu 3 Transportversuche; WTTC-Quellcode; Hardwareprüfung ausstehend |
+| `50 05` | Sensoren | Mindestantwort 4 Bytes inkl. Subindex; WTTC-Quellcode; Hardwareprüfung ausstehend |
+| `56 01` | Gespeicherte Fehler | strikte Anzahl-/Längenprüfung; WTTC-Quellcode; Hardwareprüfung ausstehend |
+| `51 0B` | Gerätename | druckbare ASCII-Zeichen; WTTC runCheck; Hardwareprüfung ausstehend |
+| `51 05` | Fertigungsdatum Heizgerät | Tag, Monat, zweistelliges Jahr; WTTC runCheck; Hardwareprüfung ausstehend |
+| `51 0A` | W-Bus-Version | High-/Low-Nibble; WTTC runCheck; Hardwareprüfung ausstehend |
+| `50 06` | Zähler | Arbeitsstunden/-minuten, Betriebsstunden/-minuten, Starts; WTTC runCheck; Hardwareprüfung ausstehend |
 
 Sensorantwort ab Nutzdatenbyte 0: `05`, Temperatur+50, Spannung mV Big Endian (2), optional Flamme, Leistung W Big Endian (2), Glühstiftwiderstand mΩ Big Endian (2). Fehlende optionale Felder werden bei jeder neuen Antwort wieder unbekannt. Keine frei erfundene Brennerleistung aus Temperatur oder Laufzeit.
 
@@ -36,12 +36,12 @@ Name/Datum/W-Bus-Version sind **keine verifizierte Firmwareversion der ECU**. Un
 
 ## Zustände und Fail-safe
 
-Eigene Heizanforderung, beobachtete Flamme und angenommene Phase sind getrennte Größen. Ein Start-ACK wird nur als ACK ausgewertet. Bei verlorenem Start-ACK folgen reguläre Stoppversuche; kein automatisches erneutes Starten. Bei 15 s ohne gültige Antwort wird die Verbindung offline, Sensoren verfallen separat 15 s nach dem letzten Sensorpaket. Nach 25 s ohne gültige Kommunikation wird die eigene Heizanforderung verworfen und regulärer Stopp versucht. Ohne weiteren Haltebefehl muss das Heizgerät selbst seine protokollseitige Abschaltung ausführen; dieser Mechanismus ist im WTTC-Modell nach 20 s implementiert und am echten Gerät ungeprüft.
+Eigene Heizanforderung, beobachtete Flamme und angenommene Phase sind getrennte Größen. Ein Start-ACK wird nur als ACK ausgewertet. Bei verlorenem Start-ACK folgen reguläre Stoppversuche; kein automatisches erneutes Starten. Bei 15 s ohne gültige Antwort wird die Verbindung offline, Sensoren verfallen separat 15 s nach dem letzten Sensorpaket. Nach 25 s ohne gültige Kommunikation wird die eigene Heizanforderung verworfen und regulärer Stopp versucht. Ohne weiteren Haltebefehl muss das Heizgerät selbst seine protokollseitige Abschaltung ausführen; das tatsächliche Verhalten und die Frist sind am konkreten Heizgerät zu prüfen.
 
 Stopp, Laufzeitende und Neustart führen zu einer **angenommenen 180-s-Nachlaufphase**. Keine elektrische Spannungsabschaltung: Wasserpumpe/Gebläse müssen ihren regulären Nachlauf ausführen können. Die tatsächlichen Detailphasen Gebläse, Glühstift, Zündung, Stabilisierung, Voll-/Teillast und Regelpause werden nicht als direkt gelesene ECU-Zustände behauptet. Nach Ende der angenommenen Sperre kann `no_flame_observed` weiterhin keine sichere Aussage über ein extern betriebenes Gerät liefern. Nur einen Master verwenden.
 
 ## Analysiert, aber nicht freigegeben
 
-WTTC unterstützt zusätzlich `56 02 <code>` für Fehlerdetails und `56 03` zum Löschen/Entriegeln; der Simulator implementiert nur `56 03`, nicht die Details. Diese Befehle sind hier nicht exponiert. Keine freie Diagnose-Schreibkonsole, Codierung, Aktortests, Kraftstoffvorförderung, Ventilationsmodi oder unbekannten Register. Das WTTC-Modell enthält interne Phasencodes, meldet sie aber nicht als vollständigen Status über die hier unterstützten Telegramme. Deshalb wird kein unbekannter Statusbefehl erfunden.
+WTTC unterstützt zusätzlich `56 02 <code>` für Fehlerdetails und `56 03` zum Löschen/Entriegeln. Diese Befehle sind hier nicht exponiert. Keine freie Diagnose-Schreibkonsole, Codierung, Aktortests, Kraftstoffvorförderung, Ventilationsmodi oder unbekannten Register. Für vollständige Heizphasencodes liegt hier kein am realen Gerät bestätigter Statusbefehl vor.
 
 Die Baudrate ist im Quellcode nachgewiesen. Ob eine konkrete Thermo Top Z/C-D-Platine diese W-Bus-Befehle direkt annimmt, ist ohne deren Hardware nicht nachgewiesen. Manche fahrzeugabhängigen Varianten setzen andere Ansteuerung voraus. CAN/Gateway wird nicht implementiert.

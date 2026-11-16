@@ -45,9 +45,3 @@ NXP dokumentiert 3,3-V-kompatible Eingänge und einen Open-Drain-RXD-Ausgang: [T
 Den **konkreten** Schaltplan des Heizgeräts verwenden, W-Bus-Leitung und Hauptversorgung eindeutig identifizieren. Es wird keine universelle Stecker-/Pinnummer für alle Thermo Top Z/C-D angegeben. Bei manchen OEM-Versionen unterscheidet sich die Ansteuerung. Es gibt hier weder CAN noch ein Gateway. Weitere W-Bus-Bedienteile für diesen Aufbau als Master trennen.
 
 Regulärer Stopp erfolgt über das Protokoll, nicht durch Trennen der Heizgeräteversorgung. Der Nachlauf muss möglich bleiben. Erste Brennerprüfung nur mit korrekt aufgebautem Kühlmittel-/Kraftstoff-/Abgassystem im Freien; Software und Modelltests ersetzen diese Voraussetzungen nicht.
-
-## Zweiter ESP32 als Simulator
-
-Ohne TJA1020 und **ohne angeschlossene Webasto**: Controller GPIO17 → Simulator RX16, Simulator TX17 → Controller RX16, GND gemeinsam. Der Simulator gibt das Bus-Echo selbst zurück (`eco si`, Werkseinstellung). Keine Batterieleitung an diese 3,3-V-UART-Verbindung anschließen.
-
-Mit zwei TJA1020: jeder ESP an seinen eigenen Transceiver, LIN zusammen und gemeinsame Masse/geeignete Busversorgung; Simulator `eco no`, weil die Transceiver bereits Echo liefern. Die originale Anleitung liegt unter [third_party/wttc/README.upstream.md](../third_party/wttc/README.upstream.md). Die Firmware simuliert die Webasto nicht auf dem Controller selbst.

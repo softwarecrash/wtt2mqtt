@@ -1,6 +1,5 @@
-"""Check actual binary flash layout and byte-identical vendored simulator sources."""
+"""Check actual binary flash layout and byte-identical vendored error texts."""
 from pathlib import Path
-import gzip
 import hashlib
 import json
 import struct
