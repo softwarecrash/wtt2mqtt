@@ -26,3 +26,14 @@ for name,expected in lock['sha256'].items():
     assert hashlib.sha256((ROOT/'third_party/wttc'/name).read_bytes()).hexdigest()==expected,name
 print('PASS binary partitions: NVS, OTA metadata, two 1984-KiB apps; no filesystem; 4-MB ESP32-S3 headers')
 print('PASS vendored WTTC files match recorded upstream SHA-256 hashes')
+manifest=json.loads((ROOT/'firmware/manifest.json').read_text())
+ota=ROOT/'firmware'/manifest['ota_image']
+usb=ROOT/'firmware'/manifest['usb_image']
+assert ota.read_bytes()==(build/'firmware.bin').read_bytes()
+assert usb.stat().st_size==0x400000
+assert usb.read_bytes()[0x10000:0x10000+ota.stat().st_size]==ota.read_bytes()
+for name,details in manifest['files'].items():
+    payload=(ROOT/'firmware'/name).read_bytes()
+    assert len(payload)==details['bytes']
+    assert hashlib.sha256(payload).hexdigest()==details['sha256']
+print('PASS automatic firmware/ exports: full 4-MB .bin, identical app .bin.ota, offsets and hashes')

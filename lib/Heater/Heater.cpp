@@ -16,9 +16,11 @@ bool Heater::command(Action a, uint8_t minutes, uint32_t now) {
     minutes_ = minutes; startPending_ = starting_ = true; strcpy(state_.commandResult, "start queued"); return true;
 }
 bool Heater::updateSafe(uint32_t now) const {
-    return state_.online && state_.sensorsValid && !elapsed(now, state_.sensorAt, 10000) &&
-        state_.sensors.flame == 0 && state_.sensors.power == 0 && !state_.requested &&
-        !state_.cooldown && !starting_ && !startPending_ && !stopTries_;
+    // Firmware maintenance does not require an attached/powered heater, sensor
+    // replies or the inferred cooldown timer. Only our own active/pending start
+    // conflicts with the service window. The caller blocks new starts via OTA.
+    (void)now;
+    return restartSafe();
 }
 void Heater::send(uint32_t now, uint8_t cmd, uint8_t sub) { pendingSub_ = sub; bus_.request(now, cmd, &sub, 1); }
 void Heater::result(const Result& r, uint32_t now) {
@@ -97,6 +99,14 @@ void Heater::tick(uint32_t now) {
     if (startPending_) { startPending_ = false; send(now, 0x21, minutes_); return; }
     if (state_.requested && elapsed(now, keepAt_, 5000)) {
         uint8_t d[] = {0x21, 0}; keepAt_ = now; bus_.request(now, 0x44, d, 2); return;
+    }
+    // Start with read-only identification after the transport's 50/50-ms wakeup.
+    // Attempt both even if one times out; a missing optional register must not
+    // prevent normal polling. Explicit stop and keepalive retain priority.
+    if (identifyStep_) {
+        send(now, 0x51, identifyStep_ == 1 ? 0x0A : 0x0B);
+        identifyStep_ = identifyStep_ == 1 ? 2 : 0;
+        return;
     }
     if (firstPoll_ || elapsed(now, pollAt_, 2000)) { firstPoll_ = false; pollAt_ = now; send(now, 0x50, 5); return; }
     if (diagStep_) {

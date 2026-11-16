@@ -11,14 +11,15 @@ void Config::toJson(JsonDocument& d, bool secrets) const {
     d["ssid"] = ssid; d["broker"] = broker; d["mqttUser"] = mqttUser; d["base"] = base; d["hostname"] = hostname;
     d["port"] = port; d["publishSeconds"] = publishSeconds; d["rx"] = rx; d["tx"] = tx; d["minutes"] = minutes;
     d["discovery"] = discovery; d["json"] = json;
-    if (secrets) { d["wifiPassword"] = wifiPassword; d["mqttPassword"] = mqttPassword; d["adminPassword"] = adminPassword; }
+    d["adminUser"] = adminUser; d["adminPasswordSet"] = !adminPassword.isEmpty();
+    if (secrets) { d["wifiPassword"] = wifiPassword; d["mqttPassword"] = mqttPassword; d["adminPassword"] = adminPassword; d["webAuthVersion"] = 1; }
 }
 bool Config::update(JsonVariantConst d, String& error) {
     if (!d.is<JsonObjectConst>()) { error = "JSON object required"; return false; }
     Config next = *this;
-    const char* strings[] = {"ssid", "wifiPassword", "broker", "mqttUser", "mqttPassword", "adminPassword", "base", "hostname"};
-    String* targets[] = {&next.ssid,&next.wifiPassword,&next.broker,&next.mqttUser,&next.mqttPassword,&next.adminPassword,&next.base,&next.hostname};
-    for (size_t i = 0; i < 8; ++i) if (!d[strings[i]].isNull()) {
+    const char* strings[] = {"ssid", "wifiPassword", "broker", "mqttUser", "mqttPassword", "adminUser", "adminPassword", "base", "hostname"};
+    String* targets[] = {&next.ssid,&next.wifiPassword,&next.broker,&next.mqttUser,&next.mqttPassword,&next.adminUser,&next.adminPassword,&next.base,&next.hostname};
+    for (size_t i = 0; i < 9; ++i) if (!d[strings[i]].isNull()) {
         if (!d[strings[i]].is<const char*>()) { error = "invalid string"; return false; }
         *targets[i] = d[strings[i]].as<String>();
     }
@@ -39,7 +40,7 @@ bool Config::update(JsonVariantConst d, String& error) {
     if (!pinOk(next.rx) || !pinOk(next.tx) || next.rx == next.tx) { error = "GPIO unavailable/reserved (USB 19/20, flash, straps)"; return false; }
     if (next.ssid.length() > 32 || next.wifiPassword.length() > 63 || (!next.wifiPassword.isEmpty() && next.wifiPassword.length() < 8) ||
         next.broker.length() > 128 || next.mqttUser.length() > 128 || next.mqttPassword.length() > 128 ||
-        next.adminPassword.length() < 12 || next.adminPassword.length() > 63 || !identifier(next.base, true) || !identifier(next.hostname, false)) {
+        next.adminUser.length() > 63 || next.adminUser.indexOf(':') >= 0 || next.adminPassword.length() > 63 || !identifier(next.base, true) || !identifier(next.hostname, false)) {
         error = "invalid length, password or topic/hostname"; return false;
     }
     *this = next; return true;
@@ -50,9 +51,16 @@ bool Config::save() const {
     bool ok = p.putString("config", s) == s.length(); p.end(); return ok;
 }
 void Config::begin() {
-    char password[25]; snprintf(password, sizeof password, "%08lx%08lx%08lx", (unsigned long)esp_random(), (unsigned long)esp_random(), (unsigned long)esp_random());
-    adminPassword = password;
     Preferences p; p.begin("wtt2mqtt", true); String raw = p.getString("config", ""); p.end();
-    if (!raw.isEmpty()) { JsonDocument d; String e; if (!deserializeJson(d, raw) && update(d.as<JsonVariantConst>(), e)) return; }
+    if (!raw.isEmpty()) {
+        JsonDocument d; String e;
+        if (!deserializeJson(d, raw)) {
+            // Older builds imposed a generated admin password. Disable that legacy
+            // login once without discarding WLAN, MQTT or other saved settings.
+            bool legacy = d["webAuthVersion"].as<int>() != 1;
+            if (legacy) { d["adminUser"] = ""; d["adminPassword"] = ""; }
+            if (update(d.as<JsonVariantConst>(), e)) { if (legacy) save(); return; }
+        }
+    }
     save();
 }

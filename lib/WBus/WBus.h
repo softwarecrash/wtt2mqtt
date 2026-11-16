@@ -27,6 +27,8 @@ struct Result {
     uint8_t cmd = 0, size = 0, data[60] = {};
     Error error = Error::None;
     bool echo = false;
+    uint8_t txLength = 0, echoLength = 0, echoIndex = 0, expectedEcho = 0, actualEcho = 0;
+    uint16_t wireLength = 0, durationMs = 0;
 };
 class Bus {
 public:
@@ -36,11 +38,12 @@ public:
     bool take(Result& out);
     bool idle() const { return phase_ == Idle && !ready_; }
     void (*trace)(const char*, const uint8_t*, size_t) = nullptr;
+    void (*completed)(const Result&) = nullptr;
 private:
-    enum Phase { Idle, BreakLow, BreakHigh, Receive } phase_ = Idle;
+    enum Phase { Idle, BreakLow, BreakHigh, Receive, Drain } phase_ = Idle;
     Port& port_;
-    uint8_t tx_[64] = {}, rx_[64] = {};
-    size_t txN_ = 0, rxN_ = 0, echoN_ = 0;
+    uint8_t tx_[64] = {}, rx_[64] = {}, wire_[64] = {};
+    size_t txN_ = 0, rxN_ = 0, echoN_ = 0, wireN_ = 0;
     uint32_t since_ = 0, last_ = 0;
     bool ready_ = false, talked_ = false;
     Result result_;

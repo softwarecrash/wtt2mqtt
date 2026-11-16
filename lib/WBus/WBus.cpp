@@ -36,7 +36,7 @@ const char* errorText(Error e) {
 bool Bus::request(uint32_t now, uint8_t cmd, const uint8_t* data, size_t n) {
     if (!idle()) return false;
     int len = buildFrame(tx_, sizeof tx_, cmd, data, n); if (len < 0) return false;
-    txN_ = size_t(len); rxN_ = echoN_ = 0; result_ = Result{}; result_.cmd = cmd;
+    txN_ = size_t(len); rxN_ = echoN_ = wireN_ = 0; result_ = Result{}; result_.cmd = cmd;
     since_ = now;
     if (!talked_ || elapsed(now, last_, 10000)) { port_.drive(false); phase_ = BreakLow; }
     else send(now);
@@ -50,19 +50,32 @@ void Bus::send(uint32_t now) {
 }
 void Bus::finish(uint32_t now, Error e) {
     result_.error = e; result_.echo = echoN_ == txN_;
+    result_.txLength = uint8_t(txN_); result_.echoLength = uint8_t(echoN_);
+    result_.durationMs = uint16_t(now - since_);
+    if (trace && echoN_) trace("ECHO", tx_, echoN_);
+    if (trace && e != Error::None && wireN_) trace("RAW", wire_, wireN_);
     if (trace && rxN_) trace("RX", rx_, rxN_);
     if (e == Error::None) { result_.size = uint8_t(rxN_ - 4); memcpy(result_.data, rx_ + 3, result_.size); }
     ready_ = true; phase_ = Idle; last_ = now; talked_ = true;
+    if (completed) completed(result_);
 }
 void Bus::tick(uint32_t now) {
     if (phase_ == BreakLow && elapsed(now, since_, 50)) { port_.drive(true); phase_ = BreakHigh; since_ = now; }
     else if (phase_ == BreakHigh && elapsed(now, since_, 50)) { port_.uart(); send(now); }
-    if (phase_ != Receive) return;
+    if (phase_ != Receive && phase_ != Drain) return;
     for (int budget = 0; budget < 128; ++budget) {
         int value = port_.read(); if (value < 0) break;
         uint8_t c = uint8_t(value);
+        if (wireN_ < sizeof wire_) wire_[wireN_++] = c;
+        if (result_.wireLength < 65535) ++result_.wireLength;
+        // On an early bad echo the UART is still transmitting our request.
+        // Drain this transaction's remaining bytes before permitting another TX.
+        if (phase_ == Drain) continue;
         if (echoN_ < txN_) {
-            if (c != tx_[echoN_]) { finish(now, Error::EchoMismatch); return; }
+            if (c != tx_[echoN_]) {
+                result_.echoIndex = uint8_t(echoN_); result_.expectedEcho = tx_[echoN_]; result_.actualEcho = c;
+                result_.error = Error::EchoMismatch; phase_ = Drain; continue;
+            }
             ++echoN_; continue;
         }
         if (rxN_ == 0 && c != 0x4F) continue;
@@ -76,7 +89,7 @@ void Bus::tick(uint32_t now) {
             return;
         }
     }
-    if (elapsed(now, since_, 750)) finish(now, echoN_ < txN_ ? Error::NoEcho : Error::Timeout);
+    if (elapsed(now, since_, 750)) finish(now, phase_ == Drain ? result_.error : echoN_ < txN_ ? Error::NoEcho : Error::Timeout);
 }
 bool Bus::take(Result& out) { if (!ready_) return false; out = result_; ready_ = false; return true; }
 }

@@ -2,5 +2,6 @@
 .reference/
 include/WebAssets.h
 build/
+firmware/
 __pycache__/
 .vscode/

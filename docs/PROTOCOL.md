@@ -10,9 +10,12 @@ Quelle: WTTC-Commit `adbbf985a46c425c476f0dd9db3e8422f0bc7ea1`, `firmware/WTTC/W
 - Beispiel Sensoranfrage: `F4 03 50 05 A2`.
 - `F4` ist die von WTTC eingesetzte ThermoTest-Adressierung. Keine automatische Suche nach alternativen Adressen.
 - Vor erster Übertragung oder nach mindestens 10 s Transportpause: TX 50 ms Low, dann 50 ms High, UART wieder anschließen. Beide Phasen erfolgen zeitgesteuert ohne `delay`.
+- Beim Firmwarestart zuerst `F4 03 51 0A AC` (W-Bus-Version), danach `F4 03 51 0B AD` (Gerätename), anschließend normale Sensorabfragen. Beide Identifikationsabfragen werden auch bei Timeout versucht. Keine automatischen Stopptelegramme beim Booten; explizite Stopps und sicherheitsbedingte Stopps nach einer eigenen Heizanforderung bleiben erhalten. Die beobachtete Version-/Name-Initialisierung ist zusätzlich in [libwbus](https://github.com/futuranet/libwbus/blob/master/webasto_wbus.txt) beschrieben (Thermo Top V, kein Nachweis für jede C/Z-Variante). Baudrate bleibt 2400/8E1.
 - Alle gesendeten Bytes müssen als identisches Echo zurückkommen. Danach wird nach Antwortadresse `4F` gesucht. Kein stilles Übergehen eines fehlenden oder abweichenden Echos.
 - 750 ms Gesamt-Empfangsfenster ab Senden; 64 Byte maximale Framegröße. Bei 2400/8E1 benötigen 64 Byte ungefähr 293 ms, der aktuelle kurze Request plus Echo und Antwort passen in dieses Fenster. Keine unbegrenzten Empfangspuffer.
 - Fehler: `no_bus_echo`, `echo_mismatch`, `response_timeout`, `invalid_length`, `bad_checksum`, `unexpected_command`, `invalid_payload`.
+- Nach einem abweichenden Echo werden die restlichen Bytes bis zum Ende des 750-ms-Fensters aufgenommen und verworfen. Erst danach darf die nächste Anfrage beginnen. Dadurch kann ein frühes Störbyte nicht mehr dazu führen, dass ein zweites Telegramm in das noch laufende erste gesendet wird.
+- Im Debug-Log: `TX` ist ein Sendeversuch, `ECHO` der passende Rücklauf, `RAW` bei Fehlern die ersten maximal 64 tatsächlich empfangenen Bytes und `RX` die erkannte Antwort. `RESULT` nennt Befehl, Transportergebnis, Echoanteil, Gesamtzahl empfangener Bytes und Dauer. Bei `echo_mismatch` folgen Index, erwartetes und tatsächliches Byte. Ein Transportergebnis `ok` bestätigt noch nicht die semantische Gültigkeit eines Sensorregisters.
 
 ## Freigegebene Befehle
 

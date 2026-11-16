@@ -44,4 +44,6 @@ NXP dokumentiert 3,3-V-kompatible Eingänge und einen Open-Drain-RXD-Ausgang: [T
 
 Den **konkreten** Schaltplan des Heizgeräts verwenden, W-Bus-Leitung und Hauptversorgung eindeutig identifizieren. Es wird keine universelle Stecker-/Pinnummer für alle Thermo Top Z/C-D angegeben. Bei manchen OEM-Versionen unterscheidet sich die Ansteuerung. Es gibt hier weder CAN noch ein Gateway. Weitere W-Bus-Bedienteile für diesen Aufbau als Master trennen.
 
+Die Bezeichnung Thermo Top C/Z und ein Anschluss an Pin 2 des sechspoligen Steckers allein bestätigen die Protokollvariante nicht. Webasto unterscheidet im [Hersteller-Prüfstandhandbuch](https://dealers.webasto.com/service/files_content.aspx?Files_FileId=3757) ausdrücklich zwischen K-Linien- und W-Bus-Diagnose sowie analogem und digitalem Thermo-Top-C-Steuergerät (Seiten 9 und 13). Ohne Teilenummer daher zunächst den lokalen Transceiver-Echo-Rücklauf nachweisen und anschließend die tatsächliche ECU-Antwort untersuchen.
+
 Regulärer Stopp erfolgt über das Protokoll, nicht durch Trennen der Heizgeräteversorgung. Der Nachlauf muss möglich bleiben. Erste Brennerprüfung nur mit korrekt aufgebautem Kühlmittel-/Kraftstoff-/Abgassystem im Freien; Software und Modelltests ersetzen diese Voraussetzungen nicht.

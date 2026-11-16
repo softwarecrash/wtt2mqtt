@@ -8,12 +8,12 @@ Quelle: https://github.com/softwarecrash/Solar2MQTT, Commit **618a839d228aca3d23
 
 | Bereich und untersuchte Quellen | Erkenntnis / Umsetzung in WTT2MQTT |
 |---|---|
-| `platformio.ini`, Partitionen, `tools/pre_build.py` | Modulare PlatformIO-Struktur, Embedded-gzip-Webassets. Eigener deterministischer Assetgenerator, versioniertes kleines Arduino-2-Profil statt der deutlich umfangreicheren Solar-Plattform, feste 4-MB-Dual-OTA-Tabelle |
+| `platformio.ini`, Partitionen, `tools/pre_build.py`, `tools/merge_firmware.py` | Modulare PlatformIO-Struktur, Embedded-gzip-Webassets, automatische vollständige `.bin`- und App-`.bin.ota`-Ausgabe. Eigene Build-Werkzeuge, feste 4-MB-Dual-OTA-Tabelle; Ausgabe unter `firmware/` |
 | `src/main.cpp`, `core/*`, `SolarInverterService` | Trennung von Gerät, Netzwerk, Web, Konfiguration. Eigene hardwareunabhängige W-Bus-/Heater-Klassen; kein Wechselrichter-/Modbus-/PI-Code übernommen |
 | `WiFiManager.*`, WLAN-Wiki | AP-Fallback, Captive-DNS, mDNS und Reconnect als Benutzerführung. Die Referenz enthält teilweise wartende Verbindungsversuche; hier eigene ereignis-/zeitgesteuerte Netzverwaltung außerhalb des Bus-Owners |
 | `SettingsPrefs.*`, Schema | NVS/Preferences statt notwendigem Dateisystem. Eigene kleine validierte Konfiguration mit atomarem NVS-Blob und erst nach Neustart wirksamen Änderungen |
 | `MqttHandler.*`, `HaDiscoveryCatalog.h`, HA-Wiki | Gerätediscovery, Availability und Einzel-/JSON-Topics. Neue Webasto-Entities und ESP-IDF-Async-MQTT, keine Inverterdeskriptoren |
-| `WebServerHandler.*`, `webUI/*.html`, `app.js`, `style.css`, `statusbar.js` | Dunkles Blau, gelbe Akzente, Karten, klare Statusanzeige und separate Konfigurationsseiten als Stilvorlage. HTML/CSS/JS unabhängig neu geschrieben; keine Assets, Logos, Bilder oder JS kopiert |
+| `WebServerHandler.*`, `webUI/*.html`, `app.js`, `style.css`, `statusbar.js` | Maximal 520 Pixel breite, zentrierte Oberfläche, dunkelblaue Karten, gelbe Akzente, kompakte Statusleiste und vertikales Einstellungsmenü. Alle Ansichten in einer HTML-Seite. HTML/CSS/JS unabhängig geschrieben; keine Assets, Logos, Bilder oder JS kopiert |
 | `FirmwareWriter.h`, `GitHubOtaUpdater.*`, Firmware-Webseite | Zwei Slots, Update-Exklusivität, klarer Updatezustand. Nur lokales Upload-OTA mit Service-Handschlag; kein fremdes GitHub-Releaseziel oder Cloud-Updater |
 | `LogSerial.*`, `Logging.cpp`, Debug-/WebSerial-Seiten, Auth-Wiki | Live-Diagnose und USB erhalten. Neuer begrenzter Logring, eigenes HTTP-Log und native Browser-WebSerial-Option; kein MycilaWebSerial-Code kopiert |
 | Hosttests / Wiki / Bilder / Protokollverzeichnisse | Inventar als Architektur-/Testkontext. Inverterprotokolle, Solar-/Energiezähler, externe Sensoren, Ethernet und Hardwarevarianten außerhalb des gewünschten Umfangs nicht portiert |
