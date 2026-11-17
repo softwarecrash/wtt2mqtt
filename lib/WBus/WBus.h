@@ -18,8 +18,11 @@ struct Port {
     virtual ~Port() = default;
     virtual void drive(bool high) = 0; // detach UART and drive TX for break
     virtual void uart() = 0;         // restore 2400 8E1
+    virtual bool configure(uint32_t baud, bool even) { if (baud != 2400 || !even) return false; uart(); return true; }
+    virtual void timing(const char*, bool) {} // bounded RX observation around wakeup stages
     virtual int read() = 0;          // -1 if empty
     virtual void write(const uint8_t*, size_t) = 0; // buffered, no flush
+    virtual void writePart(const uint8_t* b, size_t n) { write(b,n); } // continuation of a paced packet
 };
 enum class Error : uint8_t { None, Timeout, NoEcho, EchoMismatch, Checksum, Length, Command, Payload };
 const char* errorText(Error error);

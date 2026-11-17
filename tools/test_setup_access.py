@@ -30,3 +30,8 @@ timing=out/('rx_timing_checks.exe' if os.name=='nt' else 'rx_timing_checks')
 subprocess.run([cxx,'-std=c++17','-Wall','-Wextra','-Werror','-Iinclude',
                 'tests/test_rx_timing.cpp','-o',str(timing)],check=True,env=env)
 subprocess.run([str(timing)],check=True,env=env)
+
+probe=out/('protocol_scan_checks.exe' if os.name=='nt' else 'protocol_scan_checks')
+subprocess.run([cxx,'-std=c++17','-Wall','-Wextra','-Werror','-Ilib/WBus',
+                'tests/test_protocol_scan.cpp','lib/WBus/WBus.cpp','lib/WBus/ProtocolScan.cpp','-o',str(probe)],check=True,env=env)
+subprocess.run([str(probe)],check=True,env=env)

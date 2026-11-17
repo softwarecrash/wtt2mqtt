@@ -9,6 +9,7 @@ void Heater::stop(uint32_t now) {
 bool Heater::command(Action a, uint8_t minutes, uint32_t now) {
     if (a == Action::Stop) { stop(now); strcpy(state_.commandResult, "stop queued"); return true; }
     if (a == Action::Diagnose) { diagStep_ = 1; return true; }
+    if (a != Action::Start) return false; // scan is owned by main, never a heating action
     if (!minutes || minutes > 120 || !state_.online || !state_.sensorsValid || state_.cooldown ||
         state_.requested || starting_ || startPending_ || state_.sensors.flame != 0 || stopTries_) {
         strcpy(state_.commandResult, "start rejected: stale data, busy, flame or cooldown"); return false;
@@ -82,7 +83,7 @@ void Heater::result(const Result& r, uint32_t now) {
     if (valid) { state_.error = Error::None; ++state_.successes; lastOk_ = now; state_.online = true; }
     else { state_.error = Error::Payload; ++state_.failures; }
 }
-void Heater::tick(uint32_t now) {
+void Heater::tick(uint32_t now, bool polling) {
     bus_.tick(now); Result r; if (bus_.take(r)) result(r, now);
     if (state_.online && elapsed(now, lastOk_, 15000)) state_.online = false;
     if (state_.sensorsValid && elapsed(now, state_.sensorAt, 15000)) state_.sensorsValid = false;
@@ -94,7 +95,7 @@ void Heater::tick(uint32_t now) {
     else if (state_.cooldown) state_.phase = "cooldown_estimated";
     else if (state_.requested) state_.phase = "start_or_control_pause_inferred";
     else state_.phase = "no_flame_observed";
-    if (!bus_.idle()) return;
+    if (!bus_.idle() || !polling) return;
     if (stopTries_) { --stopTries_; bus_.request(now, 0x10, nullptr, 0); return; }
     if (startPending_) { startPending_ = false; send(now, 0x21, minutes_); return; }
     if (state_.requested && elapsed(now, keepAt_, 5000)) {

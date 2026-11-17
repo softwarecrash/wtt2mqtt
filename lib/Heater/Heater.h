@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <WBus.h>
+#include <ProtocolScan.h>
 namespace wtt {
-enum class Action : uint8_t { Start, Stop, Diagnose };
+enum class Action : uint8_t { Start, Stop, Diagnose, Scan, CancelScan };
 struct Snapshot {
     Sensors sensors;
     bool online = false, sensorsValid = false, requested = false, cooldown = true;
@@ -14,16 +15,19 @@ struct Snapshot {
     char commandResult[80] = "boot: reading W-Bus identification";
     Error error = Error::Timeout;
     const char* phase = "unknown"; // observed or explicitly inferred, never claimed ECU phase
+    bool scanActive = false;
+    uint8_t scanProfile = 0, scanResults[ProtocolScan::Count]{};
 };
 class Heater {
 public:
     explicit Heater(Bus& bus): bus_(bus) {}
     void begin(uint32_t now);
     bool command(Action action, uint8_t minutes, uint32_t now);
-    void tick(uint32_t now);
+    void tick(uint32_t now, bool polling = true);
     const Snapshot& snapshot() const { return state_; }
     bool updateSafe(uint32_t now) const;
     bool restartSafe() const { return !state_.requested && !starting_ && !startPending_; }
+    void invalidateCommunication() { state_.online = state_.sensorsValid = false; state_.phase = "unknown"; }
 private:
     Bus& bus_; Snapshot state_;
     uint32_t pollAt_ = 0, keepAt_ = 0, lastOk_ = 0, runAt_ = 0, coolAt_ = 0, faultPoll_ = 0;

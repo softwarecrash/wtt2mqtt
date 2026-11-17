@@ -1,5 +1,7 @@
 # W-Bus-Implementierungsumfang
 
+Zur Abgrenzung älterer und fahrzeugspezifischer Diagnoseprotokolle siehe [Recherche und implementierter Protokollscan](PROTOCOL_VARIANTS.md). Thermo Top C/Z bedeutet nicht grundsätzlich W-Bus. Der manuelle Scan testet zusätzlich alte TT-C-Diagnose mit 10400/8N1 und mehreren Initialisierungen. Die dokumentierte DS2-Familie für BMW-basierte L322-Anwendungen ist noch nicht implementiert.
+
 Quelle: WTTC-Commit `adbbf985a46c425c476f0dd9db3e8422f0bc7ea1`, `firmware/WTTC/WTTC.ino` (W-Bus, readSensors, runCheck), `logica.h` (wbBuild/wbCheck/wbParse*).
 
 ## Transport

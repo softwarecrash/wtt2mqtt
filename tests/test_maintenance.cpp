@@ -19,6 +19,8 @@ int main() {
     CHECK(!heater.snapshot().online && !heater.snapshot().sensorsValid);
     CHECK(heater.snapshot().cooldown);
     CHECK(heater.updateSafe(0) && heater.restartSafe());
+    CHECK(!heater.command(wtt::Action::Scan,30,0));
+    CHECK(!heater.command(wtt::Action::CancelScan,30,0));
     for (uint32_t now=0; now<100; ++now) heater.tick(now);
     CHECK(port.sent.empty());
     heater.tick(100);

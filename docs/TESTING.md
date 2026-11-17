@@ -4,6 +4,10 @@ Die Funktionsprüfung erfolgt mit ESP32-S3 SuperMini, TJA1020 und dem konkreten 
 
 ## Softwareprüfungen
 
+`python tools/test_setup_access.py` prüft zusätzlich den Protokollscan mit aufgezeichneten Bytes: gültige alte TT-C-Sitzungsantwort, Geräteinfo, negative Antwort, falsche Prüfsummen/Adressen, unvollständige Frames und Echo ohne Antwort. Eine nicht angeschlossene Schnittstelle prüft die begrenzte Laufzeit aller vier Profile und die Rückstellung auf 2400/8E1. Es wird kein Heizgerätemodell verwendet. Der Browser-Test prüft Start/Abbruch des Scans, Statusanzeige und gesperrte normale Diagnose während der Suche.
+
+Hardwareprüfung des neuen Scans: **Webasto-Diagnose → Varianten testen**, bis Ende warten und `SCAN profile=... result=...` sowie zugehörige `SCAN_TX`/`SCAN_RAW` kopieren. Positive Sitzungsantwort und erfolgreiche Geräteinfo getrennt bewerten. Anschließend normale W-Bus-Abfragen und nach manuellem Abbruch/OTA die UART-Rückstellung prüfen. Fehlendes Echo oder eine gültige negative Antwort ist kein positiver Protokollnachweis. Kein Heizstart zum Prüfen der Erkennung erforderlich.
+
 ```sh
 pio run -e esp32s3_supermini
 python tools/verify_artifacts.py

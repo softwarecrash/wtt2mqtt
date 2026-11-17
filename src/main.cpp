@@ -5,6 +5,7 @@
 #include "Runtime.h"
 #include <Heater.h>
 #include "RxTiming.h"
+#include <ProtocolScan.h>
 #include <driver/gpio.h>
 static Config config;
 class UartPort final: public wtt::Port {
@@ -14,6 +15,8 @@ class UartPort final: public wtt::Port {
     RxTiming timing_;
     uint8_t rxPin_ = 16;
     bool timingActive_ = false;
+    bool wakeTiming_ = false, wakeInitialHigh_ = true;
+    uint32_t wakeAt_ = 0;
     static void ARDUINO_ISR_ATTR rxChanged(void* context) {
         auto* self = static_cast<UartPort*>(context);
         uint32_t now = micros(); bool high = digitalRead(self->rxPin_);
@@ -26,11 +29,20 @@ class UartPort final: public wtt::Port {
 public:
     void drive(bool high) override {
         if (attached_) { gpio_intr_disable(static_cast<gpio_num_t>(rxPin_)); detachInterrupt(rxPin_); serial_.end(); attached_ = false; }
+        // RXD is open-drain. Keep a defined idle level while UART is detached.
+        rxPin_=config.rx; pinMode(rxPin_,INPUT_PULLUP);
         pinMode(config.tx,OUTPUT); digitalWrite(config.tx,high ? HIGH : LOW);
     }
     void uart() override {
-        serial_.begin(2400,SERIAL_8E1,config.rx,config.tx); attached_ = true;
+        configure(2400,true);
+    }
+    bool configure(uint32_t baud, bool even) override {
+        if (attached_) { gpio_intr_disable(static_cast<gpio_num_t>(rxPin_)); detachInterrupt(rxPin_); serial_.end(); }
+        serial_.begin(baud,even ? SERIAL_8E1 : SERIAL_8N1,config.rx,config.tx); attached_ = true;
         rxPin_ = config.rx;
+        // Apply after begin(): UART pin setup may reset the GPIO pull mode.
+        // Do not use pinMode here, which could change the UART pin routing.
+        gpio_set_pull_mode(static_cast<gpio_num_t>(rxPin_),GPIO_PULLUP_ONLY);
         attachInterruptArg(rxPin_,rxChanged,this,CHANGE);
         gpio_intr_disable(static_cast<gpio_num_t>(rxPin_));
         // HardwareSerial::end() clears this callback, so reattach after each break.
@@ -39,15 +51,40 @@ public:
             unsigned index = static_cast<unsigned>(error);
             if (index > 0 && index < 6) errors_[index].fetch_add(1,std::memory_order_relaxed);
         });
+        return true;
     }
     int read() override { return attached_ && serial_.available() ? serial_.read() : -1; }
+    void timing(const char* label,bool start) override {
+        if(start) {
+            rxPin_=config.rx;
+            if(!attached_) { pinMode(rxPin_,INPUT_PULLUP); attachInterruptArg(rxPin_,rxChanged,this,CHANGE); }
+            gpio_intr_disable(static_cast<gpio_num_t>(rxPin_));
+            portENTER_CRITICAL(&timingMux_);
+            wakeAt_=micros(); wakeInitialHigh_=digitalRead(rxPin_);
+            timing_.start(wakeAt_,wakeInitialHigh_); timingActive_=wakeTiming_=true;
+            portEXIT_CRITICAL(&timingMux_);
+            gpio_intr_enable(static_cast<gpio_num_t>(rxPin_));
+        } else if(wakeTiming_) {
+            gpio_intr_disable(static_cast<gpio_num_t>(rxPin_));
+            portENTER_CRITICAL(&timingMux_);
+            timingActive_=false; RxTiming captured=timing_; wakeTiming_=false;
+            portEXIT_CRITICAL(&timingMux_);
+            uint32_t end=micros(); captured.finish(end);
+            char samples[145]{}; size_t pos=0;
+            for(unsigned i=0;i<captured.stored && pos+13<sizeof samples;++i)
+                pos+=snprintf(samples+pos,sizeof(samples)-pos,"%c%lu ",captured.sampleHigh[i]?'H':'L',(unsigned long)captured.duration[i]);
+            logLine("%s us=%lu RX=%s->%s edges=%u low_max_us=%lu samples_us=%s%s",label,(unsigned long)(end-wakeAt_),wakeInitialHigh_?"H":"L",digitalRead(rxPin_)?"H":"L",captured.edges,(unsigned long)captured.longestLow,samples,captured.edges>=RxTiming::Limit?" [limit]":"");
+        }
+    }
     void write(const uint8_t* b,size_t n) override {
+        wakeTiming_=false;
         portENTER_CRITICAL(&timingMux_);
         timing_.start(micros(),digitalRead(rxPin_)); timingActive_ = true;
         portEXIT_CRITICAL(&timingMux_);
         gpio_intr_enable(static_cast<gpio_num_t>(rxPin_));
         serial_.write(b,n);
     }
+    void writePart(const uint8_t* b,size_t n) override { serial_.write(b,n); }
     void reportErrors() {
         gpio_intr_disable(static_cast<gpio_num_t>(rxPin_));
         portENTER_CRITICAL(&timingMux_);
@@ -70,6 +107,8 @@ public:
 static UartPort port;
 static wtt::Bus bus(port);
 static wtt::Heater heater(bus);
+static wtt::ProtocolScan scanner(port);
+static bool scanPending = false;
 static void trace(const char* direction,const uint8_t* b,size_t n) {
     char text[193]; size_t k = 0;
     for (size_t i = 0; i < n && k + 3 < sizeof text; ++i) k += snprintf(text+k,sizeof(text)-k,"%02X ",b[i]);
@@ -81,6 +120,13 @@ static void busResult(const wtt::Result& result) {
     if (result.error == wtt::Error::EchoMismatch)
         logLine("W-Bus ECHO mismatch index=%u expected=%02X received=%02X",result.echoIndex,result.expectedEcho,result.actualEcho);
     port.reportErrors();
+}
+static void scanResult(unsigned profile,unsigned result) {
+    logLine("SCAN profile=%u %s result=%s",profile+1,wtt::ProtocolScan::name(profile),wtt::ProtocolScan::outcome(result));
+    port.reportErrors();
+}
+static void scanAttempt(unsigned profile,uint8_t service,unsigned result,size_t received,bool echo) {
+    logLine("SCAN attempt profile=%u service=%02X result=%s bytes=%u echo=%s",profile+1,service,wtt::ProtocolScan::outcome(result),unsigned(received),echo?"complete":"missing/mismatch");
 }
 static void networkTask(void*) {
     static_assert(configUSE_PREEMPTION == 1 && configUSE_TIME_SLICING == 1,
@@ -97,7 +143,9 @@ void setup() {
     commandQueue = xQueueCreate(8,sizeof(Command));
     if (!commandQueue) { logLine("FATAL command queue allocation failed"); return; }
     bus.trace = trace; bus.completed = busResult; heater.begin(millis()); storeSnapshot(heater.snapshot());
-    logLine("W-Bus UART: RX=%u TX=%u, 2400 baud 8E1; UART errors + RX_TIMING enabled",config.rx,config.tx);
+    scanner.trace = trace; scanner.report = scanResult; scanner.attempt = scanAttempt;
+    logLine("Protocol scan available: W-Bus + legacy TT-C 10400/8N1; build %s %s",__DATE__,__TIME__);
+    logLine("W-Bus UART: RX=%u TX=%u, 2400 baud 8E1; RX internal pull-up enabled; UART errors + RX_TIMING enabled",config.rx,config.tx);
     // Arduino 2.0.17 Stream::timedRead() can busy-wait inside WebServer parsing.
     // A higher-priority worker would starve IDLE0 during partial/slow requests.
     // Share priority with IDLE0 so preemptive time slicing keeps its WDT feed alive,
@@ -110,10 +158,30 @@ void loop() {
     const bool serviceRequested = otaActive.load();
     if (commandQueue && xQueueReceive(commandQueue,&c,0) == pdTRUE) {
         bool allowed = !(otaActive.load() && c.action != wtt::Action::Stop);
-        bool ok = allowed && heater.command(c.action,c.minutes,now);
+        bool ok = false;
+        if(c.action==wtt::Action::Scan) {
+            ok=allowed && heater.restartSafe() && !scanPending && !scanner.active();
+            if(ok) ok=scanRecording(true);
+            if(ok) { scanPending=true; logLine("SCAN queued; normal polling paused; wakeup RX capture + legacy fault read enabled"); }
+        } else if(c.action==wtt::Action::CancelScan || c.action==wtt::Action::Stop) {
+            scanPending=false; scanner.cancel();
+            ok=allowed && (c.action==wtt::Action::CancelScan || heater.command(c.action,c.minutes,now));
+        } else if(!scanPending && !scanner.active()) ok=allowed && heater.command(c.action,c.minutes,now);
         logLine("Command %u %s",unsigned(c.action),ok ? "accepted" : "rejected");
     }
-    heater.tick(now); storeSnapshot(heater.snapshot()); canUpdate = heater.updateSafe(now);
+    if(serviceRequested) { scanPending=false; scanner.cancel(); }
+    if(!scanner.active()) heater.tick(now,!scanPending);
+    if(scanPending && bus.idle()) { scanPending=false; heater.invalidateCommunication(); scanner.start(now); }
+    scanner.tick(now);
+    if(scanRecordingActive() && !scanPending && !scanner.active()) {
+        logLine("SCAN ended; 7 profiles including Fiat/PSA/BMW; UART restored 2400/8E1. Rover not tested. Transcript retained until next scan/reboot.");
+        scanRecording(false);
+    }
+    auto snapshot=heater.snapshot(); snapshot.scanActive=scanPending || scanner.active(); snapshot.scanProfile=scanner.profile();
+    memcpy(snapshot.scanResults,scanner.results(),sizeof snapshot.scanResults);
+    // Probe responses never become normal W-Bus telemetry or enable starts.
+    if(snapshot.scanActive) { snapshot.online=false; snapshot.sensorsValid=false; }
+    storeSnapshot(snapshot); canUpdate = heater.updateSafe(now);
     serviceReady = serviceRequested && heater.updateSafe(now);
     restartReady = serviceRequested && heater.restartSafe();
     pumpUsbLog();
@@ -129,6 +197,8 @@ void loop() {
                 else strlcpy(credentials,"HTTP authentication disabled",sizeof credentials);
                 usbLine(credentials);
             } else if (!strcmp(line,"stop")) enqueue(wtt::Action::Stop);
+            else if (!strcmp(line,"scan")) enqueue(wtt::Action::Scan);
+            else if (!strcmp(line,"scan-stop")) enqueue(wtt::Action::CancelScan);
             else if (!strcmp(line,"diagnose")) enqueue(wtt::Action::Diagnose);
             else if (!strcmp(line,"status")) logLine("status: %s, online=%u, error=%s",heater.snapshot().phase,heater.snapshot().online,wtt::errorText(heater.snapshot().error));
             pos = 0;

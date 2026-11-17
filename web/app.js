@@ -7,6 +7,11 @@ function text(id, value) { $(id).textContent = value ?? '—'; }
 function notice(message) { text('notice', message); $('notice').hidden = false; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => $('notice').hidden = true, 8000); }
 const logView = new LogViewer('log',{lock:'logLock',copy:'copyLog',select:'selectLog',clear:'clearLog',download:'downloadLog',wrap:'logWrap',status:'logStatus',filename:'wtt2mqtt.log'},notice);
 const serialView = new LogViewer('serialLog',{lock:'serialLock',copy:'serialCopy',select:'serialSelect',clear:'serialClear',download:'serialDownload',wrap:'serialWrap',status:'serialStatus',filename:'wtt2mqtt-usb.log'},notice);
+const scanLogView = new LogViewer('scanLog',{lock:'scanLogLock',copy:'scanLogCopy',select:'scanLogSelect',clear:'scanLogClear',download:'scanLogDownload',wrap:'scanLogWrap',status:'scanLogStatus',filename:'wtt2mqtt-scan.log'},notice);
+$('scanLogLoad').onclick = async () => {
+  try { const value=await api('scan-log'); scanLogView.buffer=value; scanLogView.setLocked(false); notice(value ? 'Scan-Mitschnitt geladen.':'Noch kein Scan-Mitschnitt vorhanden.'); }
+  catch(e) { notice(e.message); }
+};
 async function api(path, data) {
   const response = await fetch('/api/' + path, {method:data === undefined ? 'GET':'POST', headers:data === undefined ? {} : {'Content-Type':'application/json','X-WTT2MQTT':'1'}, body:data === undefined ? undefined : JSON.stringify(data), signal:AbortSignal.timeout(8000)});
   if (!response.ok) throw new Error(await response.text());
@@ -55,6 +60,7 @@ async function command(action) {
   catch (e) { notice(e.message); }
 }
 $('start').onclick = () => command('start'); $('stop').onclick = () => command('stop'); $('diagnoseButton').onclick = () => command('diagnose');
+$('protocolScan').onclick = () => command('scan'); $('protocolScanStop').onclick = () => command('scan-stop');
 $('restart').onclick = async () => { try { await api('restart',{}); notice('ESP32 startet neu. Seite in wenigen Sekunden neu laden.'); } catch (e) { notice(e.message); } };
 $('scan').onclick = async () => {
   try { const d = await api('scan'); if (d.running) { notice('Suche läuft …'); setTimeout(() => $('scan').click(),2000); return; }
@@ -65,6 +71,12 @@ async function refresh() {
   if (polling || uploading) return; polling = true;
   try {
     const s = latest = await api('status'); text('connection',s.online ? 'W-Bus online':'W-Bus ohne Antwort');
+    $('protocolScan').disabled = s.requested || s.scan_active || s.ota_active;
+    $('protocolScanStop').disabled = !s.scan_active;
+    $('diagnoseButton').disabled = !!s.scan_active;
+    const outcomes={untested:'Nicht getestet',no_echo:'Kein Echo',echo_only:'Nur Echo, keine Antwort',invalid_response:'Ungültige Antwort',negative_response:'Gültige negative Antwort',positive_response:'Gültige positive Antwort',unsupported_transport:'UART-Profil nicht verfügbar'};
+    text('protocolScanState',s.scan_active ? `Suche läuft: Profil ${s.scan_profile+1}/${(s.scan_results??[]).length}` : (s.scan_results??[]).some(p=>p.result!=='untested') ? 'Suche beendet / abgebrochen; Normalbetrieb mit 2400/8E1' : 'Noch nicht gestartet');
+    details('protocolScanResults',(s.scan_results??[]).map(p=>[p.name,outcomes[p.result]??p.result]));
     text('phase',phases[s.phase] ?? s.phase); text('temperature',s.temperature); text('voltage',s.voltage?.toFixed(2)); text('power',s.power);
     text('flame',s.flame === null ? '—' : s.flame ? 'Ja':'Nein'); text('commandResult',s.command_result);
     text('remaining',s.requested ? `Heizanforderung aktiv · noch ${Math.ceil(s.remaining_seconds/60)} Minuten` : 'Keine eigene Heizanforderung aktiv');

@@ -1,5 +1,7 @@
 # Watchdog beim Aufruf der Weboberfläche
 
+RX-Pull-up: Die Firmware aktiviert jetzt am konfigurierten RX-GPIO den internen ESP32-Pull-up. Er bleibt während UART-Betrieb, Wakeup-Phasen und Protokollwechseln aktiv; nach jeder UART-Initialisierung wird er erneut gesetzt. Im Startlog steht `RX internal pull-up enabled`. Dies definiert HIGH bei offenem Open-Drain-Rückkanal, kann aber einen aktiv nach LOW gezogenen Eingang nicht übersteuern. Die Wirksamkeit am konkreten Modul ist noch am Gerät zu prüfen; der interne Pull-up ersetzt keinen gegebenenfalls erforderlichen externen Pull-up für zuverlässige elektrische Flanken.
+
 Der gemeldete Absturz mit ELF-Kennung `96d03d3f930f2887` wurde anhand des passenden ELF dekodiert:
 
 ```text

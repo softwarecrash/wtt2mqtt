@@ -3,6 +3,7 @@
 #include "Runtime.h"
 #include <stdarg.h>
 #include "averias.h"
+#include <ProtocolScan.h>
 QueueHandle_t commandQueue;
 std::atomic<bool> otaActive{false}, canUpdate{false};
 std::atomic<bool> serviceReady{false};
@@ -13,6 +14,26 @@ static SemaphoreHandle_t logMutex;
 static QueueHandle_t usbLogs;
 static char logs[48][224] = {};
 static uint32_t logCount = 0;
+static char scanTranscript[16384]{};
+static size_t scanLength=0;
+static bool recordScan=false;
+static bool scanTruncated=false;
+bool scanRecording(bool active) {
+    if(xSemaphoreTake(logMutex,0)==pdTRUE) {
+        if(active) { scanLength=0; scanTranscript[0]=0; scanTruncated=false; }
+        recordScan=active; xSemaphoreGive(logMutex); return true;
+    }
+    return false;
+}
+bool scanRecordingActive() { return recordScan; } // only read by bus owner
+String scanText() {
+    String out; out.reserve(sizeof scanTranscript);
+    if(xSemaphoreTake(logMutex,pdMS_TO_TICKS(5))==pdTRUE) {
+        out=scanTranscript; if(scanTruncated) out+="\n[Scan transcript full: remaining lines omitted]\n";
+        xSemaphoreGive(logMutex);
+    }
+    return out;
+}
 void usbLine(const char* line) {
     char bounded[224] = {}; strlcpy(bounded,line,sizeof bounded);
     if (usbLogs) xQueueSend(usbLogs,bounded,0);
@@ -23,7 +44,15 @@ void logLine(const char* fmt, ...) {
     if (!logMutex) { logMutex = xSemaphoreCreateMutex(); usbLogs = xQueueCreate(8,224); } // before network task
     char line[224]; int off = snprintf(line, sizeof line, "[%lu] ", (unsigned long)millis());
     va_list args; va_start(args, fmt); vsnprintf(line + off, sizeof(line) - off, fmt, args); va_end(args);
-    if (xSemaphoreTake(logMutex, 0) == pdTRUE) { strlcpy(logs[logCount++ % 48], line, sizeof logs[0]); xSemaphoreGive(logMutex); }
+    if (xSemaphoreTake(logMutex, 0) == pdTRUE) {
+        strlcpy(logs[logCount++ % 48], line, sizeof logs[0]);
+        if(recordScan) {
+            size_t n=strlen(line);
+            if(scanLength+n+2<=sizeof scanTranscript) { memcpy(scanTranscript+scanLength,line,n); scanLength+=n; scanTranscript[scanLength++]='\n'; scanTranscript[scanLength]=0; }
+            else scanTruncated=true;
+        }
+        xSemaphoreGive(logMutex);
+    }
     // Only the bus owner writes USB, avoiding availableForWrite()/write() races.
     if (usbLogs) xQueueSend(usbLogs,line,0);
 }
@@ -68,6 +97,11 @@ void stateJson(JsonDocument& d) {
     d["remaining_seconds"] = s.remainingSeconds; d["communication_error"] = wtt::errorText(s.error);
     d["failures"] = s.failures; d["successes"] = s.successes; d["command_result"] = s.commandResult;
     d["device"] = s.device; d["wbus_version"] = s.version; d["manufacture"] = s.manufacture;
+    d["scan_active"] = s.scanActive; d["scan_profile"] = s.scanProfile;
+    auto profiles=d["scan_results"].to<JsonArray>();
+    for(unsigned i=0;i<wtt::ProtocolScan::Count;++i) {
+        auto p=profiles.add<JsonObject>(); p["name"]=wtt::ProtocolScan::name(i); p["result"]=wtt::ProtocolScan::outcome(s.scanResults[i]);
+    }
     d["counters"] = nullptr;
     if (s.countersValid) {
         auto c = d["counters"].to<JsonObject>(); c["work_hours"] = s.workHours; c["work_minutes"] = s.workMinutes;

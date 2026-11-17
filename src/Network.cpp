@@ -86,13 +86,16 @@ void Network::routes() {
         String a = d["action"] | ""; wtt::Action action;
         if (a == "start") action = wtt::Action::Start; else if (a == "stop") action = wtt::Action::Stop;
         else if (a == "diagnose") action = wtt::Action::Diagnose;
-        else { server_.send(400,"text/plain","Allowed: start, stop, diagnose"); return; }
+        else if (a == "scan") action = wtt::Action::Scan;
+        else if (a == "scan-stop") action = wtt::Action::CancelScan;
+        else { server_.send(400,"text/plain","Allowed: start, stop, diagnose, scan, scan-stop"); return; }
         int minutes = d["minutes"] | int(cfg_.minutes);
         if (minutes < 1 || minutes > 120) { server_.send(400,"text/plain","Duration must be 1..120 min"); return; }
         bool ok = enqueue(action, uint8_t(minutes));
         server_.send(ok ? 202 : 409,"application/json", ok ? "{\"queued\":true}" : "{\"queued\":false}");
     });
     server_.on("/api/log", HTTP_GET, [this] { if (auth()) { server_.sendHeader("Cache-Control","no-store"); server_.send(200,"text/plain; charset=utf-8",logText()); } });
+    server_.on("/api/scan-log", HTTP_GET, [this] { if(auth()) { server_.sendHeader("Cache-Control","no-store"); server_.send(200,"text/plain; charset=utf-8",scanText()); } });
     server_.on("/api/scan", HTTP_GET, [this] {
         if (!auth()) return; JsonDocument d; int n = WiFi.scanComplete();
         if (n == WIFI_SCAN_FAILED) { WiFi.scanNetworks(true); d["running"] = true; }

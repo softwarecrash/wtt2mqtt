@@ -19,6 +19,7 @@ STATE = dict(firmware='0.1.0', uptime=200, online=True, phase='no_flame_observed
              device='', wbus_version='', manufacture='', counters=None, fault_count=1, fault_age_seconds=2,
              faults=[dict(code='0x02',count=2,text='Kein Start')], update_safe=True, ota_active=False, free_heap=210000,
              wifi_connected=True, mqtt_connected=True, ap=False, ip='192.168.1.60', rssi=-52)
+STATE.update(scan_active=False,scan_profile=0,scan_results=[dict(name='TT-C KWP 10400/8N1 25/25',result='untested')])
 requests = []
 LOG_TEXT = ''.join(f'[{index}] W-Bus test line {index}\n' for index in range(80))
 def navigate(page, route):
@@ -43,6 +44,9 @@ class Handler(SimpleHTTPRequestHandler):
         elif self.path=='/api/wifi': self.answer(dict(ssid=CONFIG['ssid'],hostname=CONFIG['hostname'],wifiPasswordSet=True,connected=False,retry_seconds=30))
         elif self.path=='/api/log':
             body=LOG_TEXT.encode()
+            self.send_response(200); self.send_header('Content-Type','text/plain'); self.end_headers(); self.wfile.write(body)
+        elif self.path=='/api/scan-log':
+            body=b'SCAN_WAKE_LOW us=25000 RX=L->H edges=1 low_max_us=12000\nSCAN attempt service=A1 result=positive_response\n'
             self.send_response(200); self.send_header('Content-Type','text/plain'); self.end_headers(); self.wfile.write(body)
         elif self.path=='/api/scan': self.answer(dict(networks=[dict(ssid='Test WLAN',rssi=-52)]))
         else: super().do_GET()
@@ -117,6 +121,27 @@ try:
             page.locator('#diagnoseButton').click()
             page.wait_for_timeout(100)
             assert any(path=='/api/command' and data['action']=='diagnose' for path,data in requests)
+            page.locator('#protocolScan').click()
+            page.wait_for_timeout(100)
+            assert any(path=='/api/command' and data['action']=='scan' for path,data in requests)
+            STATE.update(scan_active=True,scan_profile=1,scan_results=[dict(name=name,result="untested") for name in ["W-Bus","TT-C KWP 25/25","TT-C KWP 30/25","TT-C WTT","Fiat","PSA","BMW"]])
+            page.wait_for_function("document.getElementById('protocolScan').disabled")
+            assert page.locator('#diagnoseButton').is_disabled()
+            assert page.locator('#protocolScanStop').is_enabled()
+            assert '2/7' in page.locator('#protocolScanState').inner_text()
+            page.locator('#protocolScanStop').click()
+            page.wait_for_timeout(100)
+            assert any(path=='/api/command' and data['action']=='scan-stop' for path,data in requests)
+            STATE.update(scan_active=False,scan_results=[dict(name='TT-C KWP 10400/8N1 25/25',result='positive_response')])
+            page.wait_for_function("document.getElementById('protocolScanResults').textContent.includes('positive')")
+            page.locator('#diagnose details summary').click()
+            page.locator('#scanLogLoad').click()
+            page.wait_for_function("document.getElementById('scanLog').value.includes('SCAN_WAKE_LOW')")
+            saved=page.locator('#scanLog').input_value()
+            assert 'service=A1' in saved
+            with page.expect_download() as scan_download:
+                page.locator('#scanLogDownload').click()
+            assert Path(scan_download.value.path()).read_text(encoding='utf-8')==saved
             STATE.update(online=False,temperature=None,voltage=None,flame=None,power=None,update_safe=True,phase='unknown')
             page.wait_for_function("document.getElementById('start').disabled")
             assert page.locator('#uploadButton').is_enabled()

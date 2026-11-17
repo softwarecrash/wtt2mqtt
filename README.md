@@ -67,6 +67,8 @@ HTTP-Basic-Auth und MQTT werden in dieser Version ohne TLS übertragen. Nur loka
 
 ## Benutzung und OTA
 
+Für unbekannte ältere Steuerplatinen: **Webasto-Diagnose → Varianten testen**. Der begrenzte Scan prüft W-Bus sowie alte TT-C-Diagnose mit 10400 Baud/8N1 und drei Wakeup-Varianten. Normale Abfragen pausieren; Rohtelegramme erscheinen im Live-Log, Ergebnisse pro Profil auf der Diagnoseseite. USB: `scan` und `scan-stop`. Nach Ende/Abbruch gilt wieder 2400/8E1. Ein Treffer schaltet keine Heizungssteuerung für das andere Protokoll frei. DS2/Fiat/PSA/Rover bleiben mangels verifizierter Anfragen ungetestet. [Details und Quellen](docs/PROTOCOL_VARIANTS.md).
+
 Das Live-Log und das USB-Log scrollen automatisch zum neuesten Eintrag. **Sperren**, Hochscrollen oder Markieren friert die Ansicht ein; eingehende Daten werden weiter gesammelt. **Entsperren** zeigt wieder den aktuellen Stand. **Log kopieren** funktioniert auch auf der HTTP-Geräteseite; alternativ stehen **Alles markieren** und **Herunterladen** zur Verfügung. Der Download enthält die angezeigte Ansicht. **Leeren** löscht nur den Browserverlauf. Der Browser hält maximal 2.000 vollständige Zeilen beziehungsweise 256 KiB Text vor; die Abfrage kann bei unterbrochener Verbindung Einträge verpassen.
 
 Start/Stopp im Dashboard oder über [MQTT](docs/MQTT.md). „Diagnose lesen“ fragt die freigegebenen Lese-Register ab. Der Debugbereich zeigt TX/RX und Ergebnisse. USB-Befehle: `status`, `diagnose`, `stop`, `credentials`. Start über USB ist bewusst nicht freigegeben. Der zusätzliche Browser-WebSerial-Zugang benötigt Chrome/Edge und einen sicheren Ursprung (HTTPS/localhost); über die normale HTTP-Geräteseite ist stattdessen das Live-Log nutzbar.
