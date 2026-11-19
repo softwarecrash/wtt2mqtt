@@ -52,7 +52,10 @@ for (const id of ['mqttForm','wifiForm','hardwareForm','securityForm']) $(id).ad
       payload.adminUser = ''; payload.adminPassword = '';
     }
   }
-  try { await api('config',payload); notice('Gespeichert. Nach einem Neustart werden die neuen Einstellungen geladen.'); }
+  try {
+    if (id === 'wifiForm') { await api('wifi',payload); notice('WLAN gespeichert. Der ESP32 verbindet sich ohne Neustart neu.'); }
+    else { await api('config',payload); notice('Gespeichert. Nach einem Neustart werden die neuen Einstellungen geladen.'); }
+  }
   catch (e) { notice(e.message); }
 });
 async function command(action) {
@@ -62,11 +65,39 @@ async function command(action) {
 $('start').onclick = () => command('start'); $('stop').onclick = () => command('stop'); $('diagnoseButton').onclick = () => command('diagnose');
 $('protocolScan').onclick = () => command('scan'); $('protocolScanStop').onclick = () => command('scan-stop');
 $('restart').onclick = async () => { try { await api('restart',{}); notice('ESP32 startet neu. Seite in wenigen Sekunden neu laden.'); } catch (e) { notice(e.message); } };
-$('scan').onclick = async () => {
-  try { const d = await api('scan'); if (d.running) { notice('Suche läuft …'); setTimeout(() => $('scan').click(),2000); return; }
-    $('networks').replaceChildren(); for (const n of d.networks ?? []) { const o = document.createElement('option'); o.value = n.ssid; o.label = n.rssi + ' dBm'; $('networks').append(o); } notice('Netzwerke im SSID-Auswahlfeld verfügbar.');
-  } catch (e) { notice(e.message); }
-};
+let wifiScanBusy = false;
+function renderNetworks(networks) {
+  const list = $('networks'); list.replaceChildren();
+  for (const n of networks) {
+    if (!n.ssid) continue;
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'network-card';
+    button.setAttribute('aria-pressed', String(n.ssid === $('wifiForm').elements.ssid.value));
+    const name = document.createElement('strong'); name.textContent = n.ssid;
+    const meta = document.createElement('span'); meta.className = 'network-meta'; meta.textContent = `${n.rssi} dBm · ${n.secure ? 'Gesichert' : 'Offen'}${n.bssid ? ' · ' + n.bssid : ''}`;
+    const signal = document.createElement('span'); signal.className = 'network-signal'; signal.setAttribute('aria-hidden','true'); signal.textContent = n.rssi >= -60 ? '▂▄▆█' : n.rssi >= -75 ? '▂▄▆' : '▂▄';
+    button.append(name, meta, signal); button.onclick = () => {
+      $('wifiForm').elements.ssid.value = n.ssid;
+      $('wifiSelected').textContent = `Ausgewählt: ${n.ssid}${n.bssid ? ' · ' + n.bssid : ''}`;
+      for (const row of list.querySelectorAll('.network-card')) row.setAttribute('aria-pressed', String(row === button));
+    };
+    list.append(button);
+  }
+}
+async function scanWifi() {
+  if (wifiScanBusy) return; wifiScanBusy = true; $('scan').disabled = true;
+  $('wifiScanStatus').textContent = 'Suche läuft …';
+  try {
+    for (;;) {
+      const result = await api('scan');
+      if (result.running) { await new Promise(resolve => setTimeout(resolve,1000)); continue; }
+      renderNetworks(result.networks ?? []);
+      $('wifiScanStatus').textContent = result.error ? result.error : `${(result.networks ?? []).length} Netzwerke gefunden.`;
+      break;
+    }
+  } catch (e) { $('wifiScanStatus').textContent = e.message; }
+  finally { wifiScanBusy = false; $('scan').disabled = false; }
+}
+$('scan').onclick = scanWifi;
 async function refresh() {
   if (polling || uploading) return; polling = true;
   try {

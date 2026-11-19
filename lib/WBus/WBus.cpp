@@ -49,6 +49,7 @@ void Bus::send(uint32_t now) {
     if (trace) trace("TX", tx_, txN_);
 }
 void Bus::finish(uint32_t now, Error e) {
+    const bool busActivity = echoN_ == txN_;
     result_.error = e; result_.echo = echoN_ == txN_;
     result_.txLength = uint8_t(txN_); result_.echoLength = uint8_t(echoN_);
     result_.durationMs = uint16_t(now - since_);
@@ -56,7 +57,7 @@ void Bus::finish(uint32_t now, Error e) {
     if (trace && e != Error::None && wireN_) trace("RAW", wire_, wireN_);
     if (trace && rxN_) trace("RX", rx_, rxN_);
     if (e == Error::None) { result_.size = uint8_t(rxN_ - 4); memcpy(result_.data, rx_ + 3, result_.size); }
-    ready_ = true; phase_ = Idle; last_ = now; talked_ = true;
+    ready_ = true; phase_ = Idle; last_ = now; talked_ = busActivity;
     if (completed) completed(result_);
 }
 void Bus::tick(uint32_t now) {

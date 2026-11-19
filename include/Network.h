@@ -21,6 +21,7 @@ private:
     uint32_t reconnectAt_ = 0, publishedAt_ = 0, restartAt_ = 0;
     uint32_t offlineAt_ = 0, wifiApplyAt_ = 0;
     bool wifiWasConnected_ = false, wifiApplyPending_ = false;
+    bool wifiScanActive_ = false, wifiScanResumePending_ = false;
     bool ap_ = false, uploadOk_ = false, uploadStarted_ = false;
     size_t uploadBytes_ = 0;
     void startAP();

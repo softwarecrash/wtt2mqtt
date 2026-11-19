@@ -97,10 +97,50 @@ void Network::routes() {
     server_.on("/api/log", HTTP_GET, [this] { if (auth()) { server_.sendHeader("Cache-Control","no-store"); server_.send(200,"text/plain; charset=utf-8",logText()); } });
     server_.on("/api/scan-log", HTTP_GET, [this] { if(auth()) { server_.sendHeader("Cache-Control","no-store"); server_.send(200,"text/plain; charset=utf-8",scanText()); } });
     server_.on("/api/scan", HTTP_GET, [this] {
-        if (!auth()) return; JsonDocument d; int n = WiFi.scanComplete();
-        if (n == WIFI_SCAN_FAILED) { WiFi.scanNetworks(true); d["running"] = true; }
-        else if (n == WIFI_SCAN_RUNNING) d["running"] = true;
-        else { auto a = d["networks"].to<JsonArray>(); for (int i = 0; i < n && i < 24; ++i) { auto e = a.add<JsonObject>(); e["ssid"] = WiFi.SSID(i); e["rssi"] = WiFi.RSSI(i); } WiFi.scanDelete(); }
+        if (!auth()) return;
+        JsonDocument d;
+        int n = WiFi.scanComplete();
+        if (!wifiScanActive_) {
+            if (n == WIFI_SCAN_RUNNING || n >= 0) {
+                wifiScanActive_ = true;
+            } else {
+                // Stop any pending station retry before starting the radio scan.
+                // Keep an existing connection intact; only pause reconnects while offline.
+                WiFi.setAutoReconnect(false);
+                if (WiFi.status() != WL_CONNECTED) WiFi.disconnect(false, false);
+                n = WiFi.scanNetworks(true, true);
+                if (n == WIFI_SCAN_RUNNING) wifiScanActive_ = true;
+                else if (n >= 0) wifiScanActive_ = true;
+                else {
+                    wifiScanResumePending_ = true;
+                    d["running"] = false;
+                    d["error"] = "WLAN-Suche konnte nicht gestartet werden";
+                    sendJson(d); return;
+                }
+            }
+        }
+        if (wifiScanActive_ && n == WIFI_SCAN_RUNNING) {
+            d["running"] = true;
+        } else {
+            n = WiFi.scanComplete();
+            if (n == WIFI_SCAN_RUNNING) d["running"] = true;
+            else if (n < 0) {
+                d["running"] = false;
+                d["error"] = "WLAN-Suche fehlgeschlagen";
+                wifiScanActive_ = false;
+                wifiScanResumePending_ = true;
+                WiFi.scanDelete();
+            } else {
+                auto a = d["networks"].to<JsonArray>();
+                for (int i = 0; i < n && i < 24; ++i) {
+                    auto e = a.add<JsonObject>();
+                    e["ssid"] = WiFi.SSID(i); e["rssi"] = WiFi.RSSI(i);
+                    e["bssid"] = WiFi.BSSIDstr(i);
+                    e["secure"] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+                }
+                WiFi.scanDelete(); wifiScanActive_ = false; wifiScanResumePending_ = true;
+            }
+        }
         sendJson(d);
     });
     server_.on("/api/restart", HTTP_POST, [this] {
@@ -169,7 +209,12 @@ void Network::upload() {
 void Network::tick() {
     server_.handleClient(); uint32_t now = millis();
     if (ap_) dns_.processNextRequest();
-    if (wifiApplyPending_ && wtt::elapsed(now,wifiApplyAt_,1000)) {
+    if (wifiScanActive_ && WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
+        // Finish the radio operation even if the browser leaves the page.
+        // Keep successful results available for the next /api/scan poll.
+        wifiScanActive_ = false; wifiScanResumePending_ = true;
+    }
+    if (wifiApplyPending_ && !wifiScanActive_ && wtt::elapsed(now,wifiApplyAt_,1000)) {
         wifiApplyPending_ = false;
         wifiSsid_ = pendingConfig_.ssid; wifiPassword_ = pendingConfig_.wifiPassword; wifiHostname_ = pendingConfig_.hostname;
         // Keep the AP available while trying the new credentials. Do not reboot
@@ -177,7 +222,13 @@ void Network::tick() {
         startAP(); WiFi.disconnect(false,false); WiFi.setHostname(wifiHostname_.c_str());
         MDNS.end(); if (MDNS.begin(wifiHostname_.c_str())) MDNS.addService("http","tcp",80);
         offlineAt_ = reconnectAt_ = now; wifiWasConnected_ = false;
+        wifiScanResumePending_ = false; WiFi.setAutoReconnect(true);
         if (!wifiSsid_.isEmpty()) WiFi.begin(wifiSsid_.c_str(),wifiPassword_.c_str());
+    }
+    if (wifiScanResumePending_ && !wifiScanActive_) {
+        wifiScanResumePending_ = false;
+        WiFi.setAutoReconnect(true);
+        reconnectAt_ = now - 30000;
     }
     if (WiFi.status() == WL_CONNECTED) {
         wifiWasConnected_ = true; offlineAt_ = reconnectAt_ = now;
@@ -187,7 +238,7 @@ void Network::tick() {
     } else {
         if (wifiWasConnected_) { wifiWasConnected_ = false; offlineAt_ = reconnectAt_ = now; logLine("WiFi lost; reconnecting, setup AP after 30 s"); }
         if (wtt::elapsed(now,offlineAt_,30000)) startAP();
-        if (!wifiSsid_.isEmpty() && wtt::elapsed(now,reconnectAt_,30000) && WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
+        if (!wifiScanActive_ && !wifiScanResumePending_ && !wifiSsid_.isEmpty() && wtt::elapsed(now,reconnectAt_,30000) && WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
             reconnectAt_ = now; WiFi.begin(wifiSsid_.c_str(),wifiPassword_.c_str());
         }
     }
