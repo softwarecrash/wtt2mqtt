@@ -1,7 +1,8 @@
-# Diagnoseprofile in der aktuellen Firmware
+﻿# Protokollprofile in der Firmware
 
-Sieben begrenzte Leseprofile, aus den lokalen Original-WTT-Dateien unabhängig implementiert. Details und Herkunft: [WTT-Binäranalyse](WTT_BINARY_ANALYSIS.md). Die OEM-Profile sind noch nicht an echter Hardware bestätigt und aktivieren keine Heizungssteuerung.
+RX/TX-Pins und Protokoll werden unter **Einstellungen → Geräte-Konfiguration** verwaltet, getrennt vom WLAN. Standardmäßig läuft beim Start eine automatische Erkennung; sie prüft die Profile in Tabellenreihenfolge und stoppt beim ersten Profil mit validierter positiver Antwort. Bei fester Auswahl wird ausschließlich dieses Profil geprüft. Details und Herkunft: [WTT-Binäranalyse](WTT_BINARY_ANALYSIS.md).
 
+W-Bus bleibt der einzige freigegebene Heizungsbetrieb. PSA-KWP führt Session und Ident-Abfrage aus und fragt anschließend die belegten Lese-DIDs `C0` bis `CE`, `A0` sowie den Fehlerlesedienst `17 FF 00` ab. WTT ordnet `C0` einer Temperaturlutabelle und `C1` einer Spannungsskalierung zu; diese beiden Werte werden dekodiert. Weitere DIDs und die zusätzlichen drei Bytes pro PSA-Fehler bleiben ausdrücklich Rohdaten. Start/Stopp- und Fehlerlöschbefehle werden nicht gesendet: Die WTT-Einträge für Aktortests/Routinen sind zustandsabhängig und ihre Gerätewirkung ist aus der Tabelle allein nicht sicher genug abzuleiten. Fiat/TT-C/BMW sind weiterhin reine Diagnoseprofile.
 | Profil | UART / Wakeup in ms | Anfragen |
 |---|---|---|
 | W-Bus | 2400/8E1, 50/50 | Version und Name `51/0A`, `51/0B` |
@@ -14,7 +15,13 @@ Sieben begrenzte Leseprofile, aus den lokalen Original-WTT-Dateien unabhängig i
 
 Lange Wakeup-Sequenz: LOW 300, HIGH 50, LOW 25, HIGH 25 ms. Der frühere zusätzliche 3025-ms-Aufschub entfällt. Fiat/PSA senden ohne blockierende Wartezeit byteweise und erfassen das Echo währenddessen. Vollständige geprüfte Antworten werden sofort ausgewertet. Sitzungsversuche sind auf drei begrenzt. Folgeabfragen sind an eine passende positive Sitzung gebunden. BMW nutzt einen eigenen WTT-Rahmen, keinen generischen DS2-Test. Rover bleibt unimplementiert.
 
-**Testen:** Webasto-Diagnose -> **Varianten testen**, alternativ USB `scan`. Danach **Gespeicherter Scan-Mitschnitt -> Mitschnitt laden** und kopieren oder herunterladen. Alle sieben Profile laufen einmal durch; danach wieder normaler W-Bus mit 2400/8E1. UART- und Wakeup-RX-Diagnose bleiben aktiv. Der TJA1020-Dominant-Timeout wird dadurch nicht umgangen.
+Für PSA wird ausschließlich die positive Sessionantwort `C1 D0 8F` akzeptiert, danach die WTT-Ident-Anfrage `21 80` gesendet. Die Antwort muss die PSA-Adressen `F1 -> 01`, den positiven Dienst `61 80` und die additive Prüfsumme erfüllen. Die vollständigen Antwortbytes werden als Roh-Hex im API-Feld `psa_identification_raw` und im Geräte-Menü angezeigt.
+
+Nach der Identifikation sendet der PSA-Adapter nur lesende WTT-Kommandos: `21 C0` bis `21 C9`, `21 CC`, `21 CD`, `21 CE`, `21 A0` und `17 FF 00`. Alle Telegramme verwenden Ziel `01`, Tester `F1`, additive Prüfsumme und 10-ms-Bytepausen. Antworten werden nur mit Gegenadressen `F1 -> 01`, vollständiger Länge und gültiger Prüfsumme übernommen. `C0` wird anhand der WTT-Tabelle (36 Stützpunkte von −40 bis 135 °C) linear interpoliert. `C1` wird mit `raw * 0.06826` V skaliert, entsprechend der im WTT2-Parser gefundenen Multiplikation `0x1AAA / 100` und anschließend `0.001`. `17 FF 00` liefert Dienst `57`, Anzahl und Datensätze zu je fünf Bytes. WTT maskiert die 16-Bit-Fehlerkennung auf 12 Bit und ordnet eine dokumentierte Teilmenge auf allgemeine Fehlerklassen ab; diese Zuordnung wird angezeigt, wenn sie existiert. Unbekannte Codes bleiben als PSA-Rohcodes. Die drei Zusatzbytes bleiben Rohdaten.
+
+Nicht umgesetzt sind `14 FF 00` (Fehler löschen) sowie die WTT-Routinen `31 A3 00`, `31 A1 00 00`, `30 00 xx` und `3B C3 xx xx`. Die Tabelle weist diese Befehle als aktive Ausgänge/Routinen aus, aber ein sicher bestätigtes Start-/Stopp-Mapping und deren Rückstellfolge fehlen. Die Firmware sperrt PSA-Steuerung weiterhin.
+
+**Testen:** Die Startsuche läuft automatisch. Eine erneute Suche ist über Webasto-Diagnose -> **Varianten testen**, alternativ USB `scan`, verfügbar. Danach **Gespeicherter Scan-Mitschnitt -> Mitschnitt laden** und kopieren oder herunterladen. Eine manuelle Suche prüft alle Profile; danach wird das zuvor ausgewählte UART-Profil wiederhergestellt. UART- und Wakeup-RX-Diagnose bleiben aktiv. Der TJA1020-Dominant-Timeout wird dadurch nicht umgangen.
 
 ## Historischer Recherchestand
 

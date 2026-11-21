@@ -18,7 +18,7 @@ async function api(path, data) {
   return response.headers.get('content-type')?.includes('application/json') ? response.json() : response.text();
 }
 function route() {
-  const titles = {dashboard:'WTT2MQTT',menu:'Einstellungen',wifi:'WLAN',mqtt:'MQTT',diagnose:'Webasto-Diagnose',firmware:'Firmware',debug:'Debugging'};
+  const titles = {dashboard:'WTT2MQTT',menu:'Einstellungen',wifi:'WLAN',mqtt:'MQTT',device:'Geräte-Konfiguration',diagnose:'Webasto-Diagnose',firmware:'Firmware',debug:'Debugging'};
   const requested = location.hash.slice(1) || 'dashboard';
   const id = requested in titles ? requested : 'dashboard';
   for (const section of document.querySelectorAll('main>section')) section.hidden = section.id !== id;
@@ -33,15 +33,15 @@ function details(id, entries) {
 }
 async function loadConfig() {
   config = await api('config');
-  for (const form of document.querySelectorAll('form.panel')) for (const input of form.querySelectorAll('input[name]')) {
+  for (const form of document.querySelectorAll('form.panel')) for (const input of form.querySelectorAll('[name]')) {
     if (!(input.name in config)) continue;
     if (input.type === 'checkbox') input.checked = config[input.name]; else input.value = config[input.name];
   }
   $('duration').value = config.minutes;
 }
-for (const id of ['mqttForm','wifiForm','hardwareForm','securityForm']) $(id).addEventListener('submit', async event => {
+for (const id of ['mqttForm','wifiForm','deviceForm','securityForm']) $(id).addEventListener('submit', async event => {
   event.preventDefault(); const payload = {};
-  for (const input of event.currentTarget.querySelectorAll('input[name]')) {
+  for (const input of event.currentTarget.querySelectorAll('[name]')) {
     if (input.name === 'openWifi' || input.name === 'disableWebAuth') continue;
     if (input.type === 'password' && !input.value) continue;
     payload[input.name] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value;
@@ -101,22 +101,34 @@ $('scan').onclick = scanWifi;
 async function refresh() {
   if (polling || uploading) return; polling = true;
   try {
-    const s = latest = await api('status'); text('connection',s.online ? 'W-Bus online':'W-Bus ohne Antwort');
+    const s = latest = await api('status');
+    text('connection',s.protocol_detection_active ? 'Protokollerkennung läuft …' : s.protocol_ready ? (s.protocol_control_supported ? `${s.active_protocol} · ${s.online ? 'online':'keine W-Bus-Antwort'}` : `${s.active_protocol} erkannt · derzeit nur Diagnose, keine Steuerung`) : 'Kein Protokoll bestätigt');
+    text('psaIdentification',s.psa_identification_raw ?? '—');
+    $('psaPanel').hidden = !String(s.active_protocol ?? '').startsWith('PSA');
+    text('psaOnline',s.psa_online ? 'online':'offline');
+    text('psaTemperature',s.psa_temperature_c === null ? '—' : Number(s.psa_temperature_c).toFixed(1));
+    text('psaVoltage',s.psa_supply_voltage_v === null ? '—' : Number(s.psa_supply_voltage_v).toFixed(2));
+    text('psaAge',s.psa_measurement_age_seconds < 0 ? 'Noch keine dekodierten PSA-Messwerte' : `Messwerte vor ${s.psa_measurement_age_seconds} s aktualisiert`);
+    details('psaRawSignals',(s.psa_raw_signals??[]).map(v=>[v.did, v.raw === undefined ? `0x${Number(v.raw_high).toString(16).padStart(2,'0').toUpperCase()} 0x${Number(v.raw_low).toString(16).padStart(2,'0').toUpperCase()}` : `0x${Number(v.raw).toString(16).padStart(2,'0').toUpperCase()}`]));
+    text('psaFaultState',s.psa_fault_count === null ? 'Keine gültige PSA-Fehlerliste vorhanden' : `${s.psa_fault_count} Fehlerdatensätze · Abfrage vor ${s.psa_fault_age_seconds} s`);
+    $('psaFaults').replaceChildren(); for (const f of s.psa_faults??[]) { const li=document.createElement('li'); li.textContent=`${f.code}${f.webasto_code ? ` → ${f.webasto_code} · ${f.text}` : ` · ${f.text}`} · Zusatzbytes ${f.raw_data.map(v=>'0x'+Number(v).toString(16).padStart(2,'0').toUpperCase()).join(' ')}`; $('psaFaults').append(li); }
     $('protocolScan').disabled = s.requested || s.scan_active || s.ota_active;
     $('protocolScanStop').disabled = !s.scan_active;
-    $('diagnoseButton').disabled = !!s.scan_active;
+    $('diagnoseButton').disabled = !s.protocol_control_supported || !!s.scan_active;
     const outcomes={untested:'Nicht getestet',no_echo:'Kein Echo',echo_only:'Nur Echo, keine Antwort',invalid_response:'Ungültige Antwort',negative_response:'Gültige negative Antwort',positive_response:'Gültige positive Antwort',unsupported_transport:'UART-Profil nicht verfügbar'};
-    text('protocolScanState',s.scan_active ? `Suche läuft: Profil ${s.scan_profile+1}/${(s.scan_results??[]).length}` : (s.scan_results??[]).some(p=>p.result!=='untested') ? 'Suche beendet / abgebrochen; Normalbetrieb mit 2400/8E1' : 'Noch nicht gestartet');
+    text('protocolScanState',s.scan_active ? `Suche läuft: Profil ${s.scan_profile+1}/${(s.scan_results??[]).length}` : (s.scan_results??[]).some(p=>p.result!=='untested') ? (s.protocol_ready ? `${s.active_protocol} ausgewählt` : 'Suche beendet / abgebrochen; kein Protokoll ausgewählt') : 'Noch nicht gestartet');
     details('protocolScanResults',(s.scan_results??[]).map(p=>[p.name,outcomes[p.result]??p.result]));
     text('phase',phases[s.phase] ?? s.phase); text('temperature',s.temperature); text('voltage',s.voltage?.toFixed(2)); text('power',s.power);
     text('flame',s.flame === null ? '—' : s.flame ? 'Ja':'Nein'); text('commandResult',s.command_result);
     text('remaining',s.requested ? `Heizanforderung aktiv · noch ${Math.ceil(s.remaining_seconds/60)} Minuten` : 'Keine eigene Heizanforderung aktiv');
-    $('start').disabled = !s.online || s.temperature === null || s.cooldown || s.requested || s.flame !== false || s.ota_active;
+    $('start').disabled = !s.protocol_control_supported || !s.online || s.temperature === null || s.cooldown || s.requested || s.flame !== false || s.ota_active;
+    $('stop').disabled = !s.protocol_control_supported || !!s.scan_active || !!s.ota_active;
     $('uploadButton').disabled = !s.update_safe;
     $('restart').disabled = s.requested || s.ota_active;
-    text('wifiState',`WLAN ${s.wifi_connected ? 'verbunden':'getrennt'}`); text('mqttState',`MQTT ${s.mqtt_connected ? 'verbunden':'getrennt'}`); text('busState',`W-Bus ${s.online ? 'online':'offline'}`);
+    text('wifiState',`WLAN ${s.wifi_connected ? 'verbunden':'getrennt'}`); text('mqttState',`MQTT ${s.mqtt_connected ? 'verbunden':'getrennt'}`);
+    text('busState',s.protocol_detection_active ? 'Protokoll Scan' : s.protocol_ready ? s.active_protocol : 'Protokoll —');
     $('wifiState').dataset.online = s.wifi_connected; $('wifiState').title = s.ip;
-    $('mqttState').dataset.online = s.mqtt_connected; $('busState').dataset.online = s.online;
+    $('mqttState').dataset.online = s.mqtt_connected; $('busState').dataset.online = s.protocol_ready;
     details('deviceInfo',[['Gerätename',s.device || null],['Fertigung',s.manufacture || null],['W-Bus-Version',s.wbus_version || null],['Arbeitszeit',s.counters ? `${s.counters.work_hours} h ${s.counters.work_minutes} min`:null],['Betriebszeit',s.counters ? `${s.counters.operating_hours} h ${s.counters.operating_minutes} min`:null],['Starts',s.counters?.starts]]);
     text('faultState',s.fault_count === null ? 'Keine gültige Fehlerliste vorhanden' : `${s.fault_count} gespeicherte Fehler · Abfrage vor ${s.fault_age_seconds} s`);
     $('faults').replaceChildren(); for (const f of s.faults) { const li = document.createElement('li'); li.textContent = `${f.code} · ${f.text} · ${f.count}×`; $('faults').append(li); }

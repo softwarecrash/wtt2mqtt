@@ -64,8 +64,12 @@ uint8_t ProtocolScan::service() const {
     if(profile_==5) return 0x21;
     return step_==1?0x3C:0xA1;
 }
-void ProtocolScan::start(uint32_t now) {
-    memset(results_,0,sizeof results_); profile_=step_=tries_=0;
+void ProtocolScan::start(uint32_t now, int onlyProfile, bool stopAtFirstPositive) {
+    memset(results_,0,sizeof results_);
+    if(onlyProfile>=0 && onlyProfile<int(Count)) profile_=lastProfile_=uint8_t(onlyProfile);
+    else { profile_=0; lastProfile_=Count-1; }
+    stopAtFirstPositive_=stopAtFirstPositive;
+    step_=tries_=0;
     beginProfile(now);
 }
 void ProtocolScan::beginProfile(uint32_t now) {
@@ -78,8 +82,8 @@ void ProtocolScan::cancel() {
 }
 void ProtocolScan::next(uint32_t now) {
     if(report) report(profile_,results_[profile_]);
-    if(++profile_>=Count) { profile_=Count-1; cancel(); }
-    else beginProfile(now);
+    if((stopAtFirstPositive_ && results_[profile_]==Positive) || profile_>=lastProfile_) { cancel(); }
+    else { ++profile_; beginProfile(now); }
 }
 void ProtocolScan::configureAndSend(uint32_t now) {
     if(!port_.configure(profile_==0?2400:profile_==6?9600:10400,profile_==0 || profile_==6)) {
@@ -118,7 +122,20 @@ void ProtocolScan::receive() {
 void ProtocolScan::finishAttempt(uint32_t now) {
     if(trace && rawN_) trace("SCAN_RAW",raw_,rawN_);
     bool echo=rawN_>=txN_ && memcmp(raw_,tx_,txN_)==0;
-    Outcome value=rawN_==0 ? NoEcho : validateProfile(profile_,raw_+(echo?txN_:0),rawN_-(echo?txN_:0),service());
+    const uint8_t* reply=raw_+(echo?txN_:0);
+    size_t replyN=rawN_-(echo?txN_:0);
+    Outcome value=rawN_==0 ? NoEcho : validateProfile(profile_,reply,replyN,service());
+    if(profile_==5 && step_==1 && value==Positive && psaIdentification) {
+        // Hand off only the complete validated KWP frame, excluding any
+        // leading noise captured by the UART during the response window.
+        for(size_t i=0;i+5<=replyN;++i) {
+            if((reply[i]&0xC0)!=0x80 || reply[i+1]!=0xF1 || reply[i+2]!=0x01) continue;
+            size_t frameN=size_t(reply[i]&0x3F)+4;
+            if(!frameN || frameN>replyN-i || reply[i+3]!=0x61 || reply[i+4]!=0x80) continue;
+            uint8_t sum=0; for(size_t k=0;k<frameN-1;++k) sum+=reply[i+k];
+            if(sum==reply[i+frameN-1]) { psaIdentification(reply+i,frameN); break; }
+        }
+    }
     if(attempt) attempt(profile_,service(),value,rawN_,echo);
     if(value>results_[profile_]) results_[profile_]=value;
     if(value==Positive && step_==0 && profile_!=6) { step_=1; phase_=Gap; since_=now; tries_=0; return; }

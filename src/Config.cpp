@@ -10,6 +10,7 @@ static bool identifier(const String& s, bool topic) {
 void Config::toJson(JsonDocument& d, bool secrets) const {
     d["ssid"] = ssid; d["broker"] = broker; d["mqttUser"] = mqttUser; d["base"] = base; d["hostname"] = hostname;
     d["port"] = port; d["publishSeconds"] = publishSeconds; d["rx"] = rx; d["tx"] = tx; d["minutes"] = minutes;
+    d["protocol"] = protocol;
     d["discovery"] = discovery; d["json"] = json;
     d["adminUser"] = adminUser; d["adminPasswordSet"] = !adminPassword.isEmpty();
     if (secrets) { d["wifiPassword"] = wifiPassword; d["mqttPassword"] = mqttPassword; d["adminPassword"] = adminPassword; d["webAuthVersion"] = 1; }
@@ -17,9 +18,9 @@ void Config::toJson(JsonDocument& d, bool secrets) const {
 bool Config::update(JsonVariantConst d, String& error) {
     if (!d.is<JsonObjectConst>()) { error = "JSON object required"; return false; }
     Config next = *this;
-    const char* strings[] = {"ssid", "wifiPassword", "broker", "mqttUser", "mqttPassword", "adminUser", "adminPassword", "base", "hostname"};
-    String* targets[] = {&next.ssid,&next.wifiPassword,&next.broker,&next.mqttUser,&next.mqttPassword,&next.adminUser,&next.adminPassword,&next.base,&next.hostname};
-    for (size_t i = 0; i < 9; ++i) if (!d[strings[i]].isNull()) {
+    const char* strings[] = {"ssid", "wifiPassword", "broker", "mqttUser", "mqttPassword", "adminUser", "adminPassword", "base", "hostname", "protocol"};
+    String* targets[] = {&next.ssid,&next.wifiPassword,&next.broker,&next.mqttUser,&next.mqttPassword,&next.adminUser,&next.adminPassword,&next.base,&next.hostname,&next.protocol};
+    for (size_t i = 0; i < 10; ++i) if (!d[strings[i]].isNull()) {
         if (!d[strings[i]].is<const char*>()) { error = "invalid string"; return false; }
         *targets[i] = d[strings[i]].as<String>();
     }
@@ -40,7 +41,8 @@ bool Config::update(JsonVariantConst d, String& error) {
     if (!pinOk(next.rx) || !pinOk(next.tx) || next.rx == next.tx) { error = "GPIO unavailable/reserved (USB 19/20, flash, straps)"; return false; }
     if (next.ssid.length() > 32 || next.wifiPassword.length() > 63 || (!next.wifiPassword.isEmpty() && next.wifiPassword.length() < 8) ||
         next.broker.length() > 128 || next.mqttUser.length() > 128 || next.mqttPassword.length() > 128 ||
-        next.adminUser.length() > 63 || next.adminUser.indexOf(':') >= 0 || next.adminPassword.length() > 63 || !identifier(next.base, true) || !identifier(next.hostname, false)) {
+        next.adminUser.length() > 63 || next.adminUser.indexOf(':') >= 0 || next.adminPassword.length() > 63 || !identifier(next.base, true) || !identifier(next.hostname, false) ||
+        !(next.protocol == "auto" || next.protocol == "wbus" || next.protocol == "ttckwp25" || next.protocol == "ttckwp30" || next.protocol == "ttcwtt" || next.protocol == "fiat" || next.protocol == "psa" || next.protocol == "bmw")) {
         error = "invalid length, password or topic/hostname"; return false;
     }
     *this = next; return true;

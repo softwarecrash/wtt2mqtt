@@ -61,6 +61,17 @@ void Network::mqttState() {
         publish(String("state/") + key, out);
     }
     String faults; serializeJson(d["faults"], faults); publish("state/faults", faults);
+    const char* psaFields[]={"psa_online","psa_temperature_c","psa_supply_voltage_v","psa_measurement_age_seconds","psa_fault_count","psa_fault_age_seconds","psa_successes","psa_failures"};
+    for(const char* key:psaFields) {
+        String out;
+        if(d[key].isNull()) out="unknown";
+        else if(d[key].is<const char*>()) out=d[key].as<String>();
+        else serializeJson(d[key],out);
+        publish(String("state/")+key,out);
+    }
+    String psaSignals; serializeJson(d["psa_raw_signals"],psaSignals); publish("state/psa_raw_signals",psaSignals);
+    String psaFaults; serializeJson(d["psa_faults"],psaFaults); publish("state/psa_faults",psaFaults);
+    publish("psa_availability",d["psa_online"].as<bool>()?"online":"offline");
     publish("heater_availability", d["online"].as<bool>() && !d["temperature"].isNull() ? "online" : "offline");
 }
 void Network::discovery() {

@@ -10,12 +10,23 @@ struct Snapshot {
     bool faultsValid = false, countersValid = false;
     uint32_t sensorAt = 0, faultAt = 0, failures = 0, successes = 0, remainingSeconds = 0;
     uint8_t faultCount = 0, codes[29] = {}, counts[29] = {};
+    // PSA-specific raw KWP values are kept separate from W-Bus sensor/fault semantics.
+    bool psaOnline = false, psaMeasurementsValid = false, psaFaultsValid = false;
+    float psaTemperatureC = 0;
+    float psaSupplyVoltage = 0;
+    uint32_t psaAt = 0, psaMeasurementAt = 0, psaFaultAt = 0, psaFailures = 0, psaSuccesses = 0;
+    uint16_t psaValidMask = 0;
+    uint8_t psaRaw[14] = {}, psaRaw2[14] = {}, psaFaultCount = 0, psaFaultExtra[12][3] = {}, psaFaultCommonCodes[12] = {};
+    uint16_t psaFaultCodes[12] = {};
     int workHours = -1, workMinutes = -1, operatingHours = -1, operatingMinutes = -1, starts = -1;
     char device[33] = {}, version[16] = {}, manufacture[16] = {};
+    char protocol[40] = "Auto-Erkennung";
+    char psaIdentification[85] = {};
     char commandResult[80] = "boot: reading W-Bus identification";
     Error error = Error::Timeout;
     const char* phase = "unknown"; // observed or explicitly inferred, never claimed ECU phase
     bool scanActive = false;
+    bool protocolReady = false, protocolControlSupported = false, protocolDetectionActive = false;
     uint8_t scanProfile = 0, scanResults[ProtocolScan::Count]{};
 };
 class Heater {

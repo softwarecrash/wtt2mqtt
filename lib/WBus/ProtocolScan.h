@@ -9,7 +9,8 @@ public:
     enum Outcome : uint8_t { Untested, NoEcho, EchoOnly, Invalid, Negative, Positive, Unsupported };
     explicit ProtocolScan(Port& port): port_(port) {}
     bool active() const { return phase_ != Idle; }
-    void start(uint32_t now);
+    // Pass a profile index to probe only that protocol, or -1 to scan all.
+    void start(uint32_t now, int onlyProfile = -1, bool stopAtFirstPositive = false);
     void cancel();
     void tick(uint32_t now);
     uint8_t profile() const { return profile_; }
@@ -19,13 +20,16 @@ public:
     void (*trace)(const char*, const uint8_t*, size_t) = nullptr;
     void (*report)(unsigned, unsigned) = nullptr;
     void (*attempt)(unsigned, uint8_t, unsigned, size_t, bool) = nullptr;
+    // Full, checksum-validated PSA identification reply (without local echo).
+    void (*psaIdentification)(const uint8_t*, size_t) = nullptr;
     // Separately reusable validator for captured UART fixtures, not a heater model.
     static Outcome validate(bool kwp, const uint8_t* bytes, size_t n, uint8_t service);
     static Outcome validateProfile(unsigned profile, const uint8_t* bytes, size_t n, uint8_t service);
 private:
     enum Phase { Idle, Quiet, Low, High, ExtraLow, Settle, Transmit, Receive, Gap } phase_ = Idle;
     Port& port_;
-    uint8_t profile_=0, step_=0, tries_=0, results_[Count]{};
+    uint8_t profile_=0, lastProfile_=Count-1, step_=0, tries_=0, results_[Count]{};
+    bool stopAtFirstPositive_=false;
     uint8_t tx_[8]{}, raw_[128]{};
     size_t txN_=0, rawN_=0, txAt_=0;
     uint32_t since_=0;

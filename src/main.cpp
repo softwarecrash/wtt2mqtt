@@ -6,6 +6,7 @@
 #include <Heater.h>
 #include "RxTiming.h"
 #include <ProtocolScan.h>
+#include <PsaKwp.h>
 #include <driver/gpio.h>
 static Config config;
 class UartPort final: public wtt::Port {
@@ -93,14 +94,14 @@ public:
         timing.finish(micros());
         uint32_t counts[6]{};
         for (unsigned i=1; i<6; ++i) counts[i]=errors_[i].exchange(0,std::memory_order_relaxed);
-        logLine("W-Bus UART since last result: parity=%lu frame=%lu break=%lu fifo=%lu buffer=%lu RX=%s",
+        logLine("UART since last result: parity=%lu frame=%lu break=%lu fifo=%lu buffer=%lu RX=%s",
                 (unsigned long)counts[UART_PARITY_ERROR],(unsigned long)counts[UART_FRAME_ERROR],
                 (unsigned long)counts[UART_BREAK_ERROR],(unsigned long)counts[UART_FIFO_OVF_ERROR],
                 (unsigned long)counts[UART_BUFFER_FULL_ERROR],digitalRead(config.rx) ? "HIGH":"LOW");
         char samples[145]{}; size_t pos=0;
         for (unsigned i=0; i<timing.stored && pos+13<sizeof samples; ++i)
             pos+=snprintf(samples+pos,sizeof(samples)-pos,"%c%lu ",timing.sampleHigh[i] ? 'H':'L',(unsigned long)timing.duration[i]);
-        logLine("W-Bus RX_TIMING edges=%u low_max_us=%lu samples_us=%s%s",timing.edges,(unsigned long)timing.longestLow,
+        logLine("RX_TIMING edges=%u low_max_us=%lu samples_us=%s%s",timing.edges,(unsigned long)timing.longestLow,
                 samples,timing.edges>=RxTiming::Limit ? " [limit]":"");
     }
 };
@@ -108,11 +109,45 @@ static UartPort port;
 static wtt::Bus bus(port);
 static wtt::Heater heater(bus);
 static wtt::ProtocolScan scanner(port);
+static wtt::PsaKwp psa(port);
 static bool scanPending = false;
+static bool startupDetection = false;
+static int8_t activeProtocol = -1;
+static char psaIdentificationRaw[85]{};
+static void copyPsaState(const wtt::Snapshot& from,wtt::Snapshot& to) {
+    to.psaOnline=from.psaOnline; to.psaMeasurementsValid=from.psaMeasurementsValid; to.psaFaultsValid=from.psaFaultsValid;
+    to.psaTemperatureC=from.psaTemperatureC; to.psaSupplyVoltage=from.psaSupplyVoltage;
+    to.psaAt=from.psaAt; to.psaMeasurementAt=from.psaMeasurementAt; to.psaFaultAt=from.psaFaultAt;
+    to.psaFailures=from.psaFailures; to.psaSuccesses=from.psaSuccesses; to.psaValidMask=from.psaValidMask;
+    to.psaFaultCount=from.psaFaultCount;
+    memcpy(to.psaRaw,from.psaRaw,sizeof to.psaRaw); memcpy(to.psaRaw2,from.psaRaw2,sizeof to.psaRaw2);
+    memcpy(to.psaFaultCodes,from.psaFaultCodes,sizeof to.psaFaultCodes);
+    memcpy(to.psaFaultExtra,from.psaFaultExtra,sizeof to.psaFaultExtra);
+    memcpy(to.psaFaultCommonCodes,from.psaFaultCommonCodes,sizeof to.psaFaultCommonCodes);
+}
+static int configuredProfile(const String& mode) {
+    if(mode=="wbus") return 0;
+    if(mode=="ttckwp25") return 1;
+    if(mode=="ttckwp30") return 2;
+    if(mode=="ttcwtt") return 3;
+    if(mode=="fiat") return 4;
+    if(mode=="psa") return 5;
+    if(mode=="bmw") return 6;
+    return -1;
+}
+static void configureProtocolUart(int profile) {
+    if(profile==0) port.configure(2400,true);
+    else if(profile==6) port.configure(9600,true);
+    else if(profile>0) port.configure(10400,false);
+    else port.uart();
+}
+static const char* activeProtocolName() {
+    return activeProtocol<0 ? "Kein Protokoll erkannt" : wtt::ProtocolScan::name(unsigned(activeProtocol));
+}
 static void trace(const char* direction,const uint8_t* b,size_t n) {
     char text[193]; size_t k = 0;
     for (size_t i = 0; i < n && k + 3 < sizeof text; ++i) k += snprintf(text+k,sizeof(text)-k,"%02X ",b[i]);
-    text[k] = 0; logLine("W-Bus %s %s",direction,text);
+    text[k] = 0; logLine("BUS %s %s",direction,text);
 }
 static void busResult(const wtt::Result& result) {
     logLine("W-Bus RESULT cmd=%02X %s echo=%u/%u received=%u elapsed=%u ms",result.cmd,wtt::errorText(result.error),
@@ -123,10 +158,18 @@ static void busResult(const wtt::Result& result) {
 }
 static void scanResult(unsigned profile,unsigned result) {
     logLine("SCAN profile=%u %s result=%s",profile+1,wtt::ProtocolScan::name(profile),wtt::ProtocolScan::outcome(result));
+    if(startupDetection && activeProtocol<0 && result==wtt::ProtocolScan::Positive) activeProtocol=int8_t(profile);
     port.reportErrors();
 }
 static void scanAttempt(unsigned profile,uint8_t service,unsigned result,size_t received,bool echo) {
     logLine("SCAN attempt profile=%u service=%02X result=%s bytes=%u echo=%s",profile+1,service,wtt::ProtocolScan::outcome(result),unsigned(received),echo?"complete":"missing/mismatch");
+}
+static void scanPsaIdentification(const uint8_t* bytes,size_t n) {
+    if(!bytes || !n) return;
+    size_t pos=0;
+    for(size_t i=0;i<n && pos+3<sizeof psaIdentificationRaw;++i)
+        pos+=snprintf(psaIdentificationRaw+pos,sizeof(psaIdentificationRaw)-pos,"%02X%s",bytes[i],i+1<n?" ":"");
+    logLine("PSA identification response validated: %s",psaIdentificationRaw);
 }
 static void networkTask(void*) {
     static_assert(configUSE_PREEMPTION == 1 && configUSE_TIME_SLICING == 1,
@@ -144,8 +187,13 @@ void setup() {
     if (!commandQueue) { logLine("FATAL command queue allocation failed"); return; }
     bus.trace = trace; bus.completed = busResult; heater.begin(millis()); storeSnapshot(heater.snapshot());
     scanner.trace = trace; scanner.report = scanResult; scanner.attempt = scanAttempt;
-    logLine("Protocol scan available: W-Bus + legacy TT-C 10400/8N1; build %s %s",__DATE__,__TIME__);
-    logLine("W-Bus UART: RX=%u TX=%u, 2400 baud 8E1; RX internal pull-up enabled; UART errors + RX_TIMING enabled",config.rx,config.tx);
+    psa.trace = trace;
+    scanner.psaIdentification = scanPsaIdentification;
+    int onlyProfile=configuredProfile(config.protocol);
+    startupDetection=true; activeProtocol=-1; psaIdentificationRaw[0]=0;
+    scanRecording(true); scanner.start(millis(),onlyProfile,config.protocol=="auto");
+    logLine("Startup protocol detection started: mode=%s profile=%s; build %s %s",config.protocol.c_str(),onlyProfile<0?"all":wtt::ProtocolScan::name(unsigned(onlyProfile)),__DATE__,__TIME__);
+    logLine("Transceiver UART pins: RX=%u TX=%u; UART errors + RX_TIMING enabled",config.rx,config.tx);
     // Arduino 2.0.17 Stream::timedRead() can busy-wait inside WebServer parsing.
     // A higher-priority worker would starve IDLE0 during partial/slow requests.
     // Share priority with IDLE0 so preemptive time slicing keeps its WDT feed alive,
@@ -162,22 +210,44 @@ void loop() {
         if(c.action==wtt::Action::Scan) {
             ok=allowed && heater.restartSafe() && !scanPending && !scanner.active();
             if(ok) ok=scanRecording(true);
-            if(ok) { scanPending=true; logLine("SCAN queued; normal polling paused; wakeup RX capture + legacy fault read enabled"); }
+            if(ok) { scanPending=true; psaIdentificationRaw[0]=0; logLine("SCAN queued; normal polling paused; wakeup RX capture + legacy fault read enabled"); }
         } else if(c.action==wtt::Action::CancelScan || c.action==wtt::Action::Stop) {
             scanPending=false; scanner.cancel();
-            ok=allowed && (c.action==wtt::Action::CancelScan || heater.command(c.action,c.minutes,now));
-        } else if(!scanPending && !scanner.active()) ok=allowed && heater.command(c.action,c.minutes,now);
+            ok=allowed && (c.action==wtt::Action::CancelScan || (activeProtocol==0 && heater.command(c.action,c.minutes,now)));
+        } else if(!scanPending && !scanner.active()) ok=allowed && activeProtocol==0 && heater.command(c.action,c.minutes,now);
         logLine("Command %u %s",unsigned(c.action),ok ? "accepted" : "rejected");
     }
     if(serviceRequested) { scanPending=false; scanner.cancel(); }
-    if(!scanner.active()) heater.tick(now,!scanPending);
+    if(!scanner.active() && !startupDetection && activeProtocol==0) heater.tick(now,!scanPending);
     if(scanPending && bus.idle()) { scanPending=false; heater.invalidateCommunication(); scanner.start(now); }
     scanner.tick(now);
     if(scanRecordingActive() && !scanPending && !scanner.active()) {
-        logLine("SCAN ended; 7 profiles including Fiat/PSA/BMW; UART restored 2400/8E1. Rover not tested. Transcript retained until next scan/reboot.");
+        if(startupDetection) {
+            startupDetection=false;
+            configureProtocolUart(activeProtocol);
+            logLine("Startup protocol detection complete: selected=%s control=%s",activeProtocolName(),activeProtocol==0?"supported":"read-only profile; no heater control adapter");
+            if(activeProtocol==5 && psaIdentificationRaw[0]) psa.begin(now);
+        } else {
+            configureProtocolUart(activeProtocol);
+            if(activeProtocol==5 && psaIdentificationRaw[0]) psa.begin(now);
+        }
+        logLine("SCAN ended; selected=%s; transcript retained until next scan/reboot.",activeProtocolName());
         scanRecording(false);
     }
-    auto snapshot=heater.snapshot(); snapshot.scanActive=scanPending || scanner.active(); snapshot.scanProfile=scanner.profile();
+    auto snapshot=heater.snapshot(); copyPsaState(heaterSnapshot(),snapshot);
+    snapshot.scanActive=scanPending || scanner.active(); snapshot.scanProfile=scanner.profile();
+    psa.tick(now,snapshot,activeProtocol==5 && psaIdentificationRaw[0] && !startupDetection && !snapshot.scanActive);
+    strlcpy(snapshot.protocol,activeProtocolName(),sizeof snapshot.protocol);
+    strlcpy(snapshot.psaIdentification,psaIdentificationRaw,sizeof snapshot.psaIdentification);
+    snapshot.protocolReady=activeProtocol>=0 && !startupDetection;
+    snapshot.protocolControlSupported=snapshot.protocolReady && activeProtocol==0;
+    snapshot.protocolDetectionActive=startupDetection || scanPending || scanner.active();
+    if(startupDetection)
+        strlcpy(snapshot.commandResult,"protocol detection running; heater control paused",sizeof snapshot.commandResult);
+    else if(activeProtocol<0)
+        strlcpy(snapshot.commandResult,"no supported protocol detected",sizeof snapshot.commandResult);
+    else if(activeProtocol!=0)
+        snprintf(snapshot.commandResult,sizeof snapshot.commandResult,"%s detected; diagnostics only, control unavailable",activeProtocolName());
     memcpy(snapshot.scanResults,scanner.results(),sizeof snapshot.scanResults);
     // Probe responses never become normal W-Bus telemetry or enable starts.
     if(snapshot.scanActive) { snapshot.online=false; snapshot.sensorsValid=false; }

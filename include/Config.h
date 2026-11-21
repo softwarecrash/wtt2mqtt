@@ -5,6 +5,8 @@
 struct Config {
     String ssid, wifiPassword, broker, mqttUser, mqttPassword, adminUser, adminPassword;
     String base = "wtt2mqtt", hostname = "wtt2mqtt";
+    // "auto" probes every supported profile; other values map to ProtocolScan profiles.
+    String protocol = "auto";
     uint16_t port = 1883, publishSeconds = 10;
     uint8_t rx = 16, tx = 17, minutes = 30;
     bool discovery = true, json = true;

@@ -33,7 +33,7 @@ Der Fix wurde kompiliert und die Ursache am passenden ELF nachvollzogen. Die Wie
 
 Ein `W-Bus TX ...` zeigt nur den Sendeversuch des ESP32. `Command 2 accepted` bedeutet, dass der ESP32 den lokalen Diagnoseauftrag angenommen hat; es ist kein ACK der Webasto.
 
-Die aktuelle Firmware protokolliert am Start die tatsächlich gespeicherten RX-/TX-GPIOs und 2400/8E1. Nach jeder Anfrage folgt ein `RESULT`, beispielsweise:
+Die aktuelle Firmware protokolliert am Start die tatsächlich gespeicherten RX-/TX-GPIOs und führt zuerst den konfigurierten Protokollscan aus. Nach jeder normalen W-Bus-Anfrage folgt ein `RESULT`, beispielsweise:
 
 ```text
 W-Bus RESULT cmd=50 no_bus_echo echo=0/5 received=0 elapsed=750 ms

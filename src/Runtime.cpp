@@ -97,6 +97,36 @@ void stateJson(JsonDocument& d) {
     d["remaining_seconds"] = s.remainingSeconds; d["communication_error"] = wtt::errorText(s.error);
     d["failures"] = s.failures; d["successes"] = s.successes; d["command_result"] = s.commandResult;
     d["device"] = s.device; d["wbus_version"] = s.version; d["manufacture"] = s.manufacture;
+    d["active_protocol"] = s.protocol; d["protocol_ready"] = s.protocolReady;
+    if(s.psaIdentification[0]) d["psa_identification_raw"] = s.psaIdentification;
+    else d["psa_identification_raw"] = nullptr;
+    d["psa_online"] = s.psaOnline;
+    d["psa_temperature_c"] = nullptr; d["psa_supply_voltage_v"] = nullptr;
+    if(s.psaValidMask & 0x0001) d["psa_temperature_c"] = s.psaTemperatureC;
+    if(s.psaValidMask & 0x0002) d["psa_supply_voltage_v"] = s.psaSupplyVoltage;
+    d["psa_measurement_age_seconds"] = (s.psaValidMask & 0x0003) ? int(uint32_t(millis()-s.psaMeasurementAt)/1000) : -1;
+    d["psa_successes"] = s.psaSuccesses; d["psa_failures"] = s.psaFailures;
+    auto psaSignals=d["psa_raw_signals"].to<JsonArray>();
+    static const uint8_t psaDids[]={0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCC,0xCD,0xCE,0xA0};
+    for(uint8_t i=0;i<14;++i) if(s.psaValidMask & uint16_t(1u<<i)) {
+        auto v=psaSignals.add<JsonObject>(); char did[5]; snprintf(did,sizeof did,"0x%02X",psaDids[i]);
+        v["did"]=did;
+        if(psaDids[i]==0xCC || psaDids[i]==0xCD || psaDids[i]==0xCE) { v["raw_high"]=s.psaRaw[i]; v["raw_low"]=s.psaRaw2[i]; }
+        else v["raw"]=s.psaRaw[i];
+    }
+    d["psa_fault_count"] = nullptr; if(s.psaFaultsValid) d["psa_fault_count"]=s.psaFaultCount;
+    d["psa_fault_age_seconds"] = s.psaFaultsValid ? int(uint32_t(millis()-s.psaFaultAt)/1000) : -1;
+    auto psaFaults=d["psa_faults"].to<JsonArray>();
+    if(s.psaFaultsValid) for(uint8_t i=0;i<s.psaFaultCount;++i) {
+        auto f=psaFaults.add<JsonObject>(); char code[7]; snprintf(code,sizeof code,"0x%04X",s.psaFaultCodes[i]);
+        f["code"]=code; auto extra=f["raw_data"].to<JsonArray>();
+        for(uint8_t j=0;j<3;++j) extra.add(s.psaFaultExtra[i][j]);
+        uint8_t mapped=s.psaFaultCommonCodes[i];
+        if(mapped!=0xFF) { char mappedText[5]; snprintf(mappedText,sizeof mappedText,"0x%02X",mapped); f["webasto_code"]=mappedText; const char* desc=averiaTexto(mapped,2); f["text"]=desc?desc:"Bekannte Webasto-Fehlerklasse"; }
+        else f["text"]="Unbekannter PSA-Rohcode";
+    }
+    d["protocol_control_supported"] = s.protocolControlSupported;
+    d["protocol_detection_active"] = s.protocolDetectionActive;
     d["scan_active"] = s.scanActive; d["scan_profile"] = s.scanProfile;
     auto profiles=d["scan_results"].to<JsonArray>();
     for(unsigned i=0;i<wtt::ProtocolScan::Count;++i) {

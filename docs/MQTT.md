@@ -25,6 +25,14 @@ Für mehrere Geräte **eindeutiges Basis-Topic** setzen, beispielsweise `wtt2mqt
 | `<base>/state/communication_error` | `ok` / Fehlertext | Ergebnis der zuletzt bearbeiteten Transaktion |
 | `<base>/state/fault_count` | Zahl / `unknown` | Anzahl gespeicherter Fehler |
 | `<base>/state/faults` | JSON-Array | `code`, `count`, `text`; nur zusammen mit `fault_count`/Alter interpretieren |
+| `<base>/state/psa_temperature_c` | Zahl °C / `unknown` | PSA DID `C0`, WTT-Thermistor-Lookup |
+| `<base>/state/psa_supply_voltage_v` | Zahl V / `unknown` | PSA DID `C1`, WTT-Skalierung |
+| `<base>/state/psa_online` | `true` / `false` | PSA-KWP-Antwort innerhalb der letzten 15 s |
+| `<base>/state/psa_fault_count` | Zahl / `unknown` | PSA-Fehlerdatensätze aus `17 FF 00` |
+| `<base>/state/psa_faults` | JSON-Array | `code` als 16-Bit-Rohcode, optional `webasto_code`/`text` für WTT-zugeordnete Klassen plus `raw_data` (drei nicht zugeordnete Zusatzbytes) |
+| `<base>/state/psa_raw_signals` | JSON-Array | DIDs und rohe Antwortbytes; unbekannte Felder absichtlich nicht umbenannt |
+| `<base>/state/psa_measurement_age_seconds` | Zahl / `-1` | Alter der letzten C0/C1-Messung |
+| `<base>/psa_availability` | `online` / `offline` | letzte gültige PSA-Antwort |
 | `<base>/state/remaining_seconds` | Zahl | verbleibende Zeit der eigenen Anforderung |
 | `<base>/state/command_result` | Ergebnistext | tatsächlicher Ausgang der lokalen Steuerungsverarbeitung |
 | `<base>/status` | JSON-Objekt | optionales vollständiges Snapshot, unabhängig von Einzel-Topics |

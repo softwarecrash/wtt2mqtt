@@ -54,6 +54,14 @@ Identifikation: 82 01 F1 21 80 15
 
 Parser `0x0044BAF0` erwartet Dienst `C1`, drei Nutzdatenbytes und Schlüsselbytes `D0 8F` (Vergleich bei `0x0044BBA6`). Der RS232-Sender verwendet ebenfalls einzelne Bytes mit `Sleep(10)` (Schleife `0x0044FC3C` bis `0x0044FC85`). Die PSA-Identifikationsparser und Messwerttabellen unterscheiden sich von Fiat; ein identisches KWP-Containerformat bedeutet keine identische Nutzdateninterpretation.
 
+Die alte PSA-Gerätetabelle des gebündelten WTT2 liegt bei VA `0x005464D0`. Nach der Identabfrage sind dort die Leseanfragen `21 C0`, `21 C1`, `21 C2`–`21 C9`, `21 CC`–`21 CE`, `21 A0` sowie `17 FF 00` eingetragen. WTT erwartet positive Dienste `61` bzw. `57`; das Fehlerlöschen `14 FF 00` ist ein separater Eintrag und wird nicht mit der Leseabfrage verwechselt.
+
+Parseradressen der gebündelten WTT2-EXE: `0x00469918` für C0, `0x00469A1E` für C1, `0x00469B34`–`0x0046A1BC` für C2–C9, `0x0046A2BF`/`0x0046A400` für CC/CD, `0x0046A541` für CE, `0x0046A64C` für A0 und `0x0046A847` für Fehler. Die C0-Tabelle bei `0x004F4808` enthält 36 Temperatur-/Rohwertpaare (−40…135 °C); WTT interpoliert zwischen ihnen. C1 wird über `MulDiv(raw, 0x1AAA, 100)` und anschließend `×0.001` in Volt umgerechnet. C2–C9, CC–CE und A0 werden in der Firmware derzeit als Rohbytes belassen, weil ihre konkreten Feldnamen bzw. Wertebereiche aus den Parsern allein nicht sicher hervorgehen.
+
+`17 FF 00` erwartet `57`, danach eine Anzahl und pro Fehler einen Fünf-Byte-Datensatz. Die ersten zwei Bytes ergeben den 16-Bit-Rohcode; die folgenden drei Bytes werden von WTT für zusätzliche Darstellung/Status verwendet. Der Konverter bei `0x0046B033` maskiert den Fehlercode auf 12 Bit und mappt die belegten Werte: `001→01`, `002→02`, `003→03`, `006→05`, `013→83`, `608→08`, `609→09`, `60A→0A`, `60B→0B`, `60C→13`, `818→88`, `819→89`, `81A→8A`, `81B→8B`, `A05→84`, `C04→04`, `C07→06` (Hexadezimal). Die Werte `004` und `005` sowie sonstige nicht aufgeführte Werte fallen auf unbekannt. Die Firmware zeigt diese belegten Klassen samt generischem Fehlertext, sonst den PSA-Rohcode; die folgenden drei Bytes bleiben ohne erratene Bedeutung Rohdaten. Der Codepfad `14 FF 00` löscht Fehler.
+
+Die Tabelle enthält zusätzlich `3B C3 00 00`, `30 00 11`, `30 00 00`, zweimal `31 A3 00` und `31 A1 00 00`; einige Parameter werden vom WTT-UI dynamisch ersetzt. Das sind bedienungs-/zustandsabhängige Aktorausgänge bzw. Routinen. Aus diesen Tabellenzeilen allein folgt kein sicher bestätigtes Start-/Stopp-Mapping oder eine Rückstellfolge. Deshalb sendet die Firmware diese Telegramme nicht und sperrt PSA-Start/Stopp. Weder Fehlerlöschen noch diese aktiven Einträge werden beim automatischen Scan verwendet.
+
 ## BMW: eigener Busrahmen, nicht pauschal generisches DS2
 
 UART ist 9600/8E1. Default-Adressen an `0x004E0370`: Heizgerät `6B`, Tester `3F`. Sendefunktion `0x00446443` erzeugt:
