@@ -6,3 +6,4 @@ build/
 firmware/
 __pycache__/
 .vscode/
+.private/
